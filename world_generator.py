@@ -16,12 +16,20 @@ def main():
 
     for fname, world in scenarios.items():
         path = os.path.join(args.output_dir, fname)
+        out = assemble(world)
 
         with open(path, "w") as f:
-            f.write(assemble(world))
+            f.write(out)
 
         fog = f"fog=d{world.fog_density:.3f}" if world.fog_density else "fog=none"
         print(f"[OK] {path} plants={len(world.plants)} boxes={len(world.boxes)} {fog}")
+        print(f"    SDF SIZE: {len(out)}")
+
+    # Write debug.sdf from the nominal world for inspection
+    debug_world = scenarios["crop_nominal.sdf"]
+    with open("debug.sdf", "w") as f:
+        f.write(assemble(debug_world))
+    print("[OK] debug.sdf written from crop_nominal")
 
 
 if __name__ == "__main__":

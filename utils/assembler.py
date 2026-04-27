@@ -3,7 +3,7 @@ from .data_classes import World
 from .sdf.snippets import _plant_sdf, _box_sdf, _robot_sdf
 
 def assemble(w: World) -> str:
-    template = "templates/world.sdf"
+    template = Path("templates/world.sdf").read_text()
 
     fog = ""
     if w.fog_density > 0:

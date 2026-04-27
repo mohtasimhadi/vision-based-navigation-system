@@ -12,6 +12,9 @@ def _plant_sdf(p: Plant, idx: int) -> str:
         y=p.y,
         canopy_z=p.canopy_z,
         canopy_r=p.canopy_r,
+        stem_z=round(p.stem_h / 2, 3),
+        stem_h=round(p.stem_h, 3),
+        stem_r=round(p.stem_r, 3),
         cr=p.cr,
         cg=p.cg,
         cb=p.cb

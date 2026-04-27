@@ -42,6 +42,15 @@
             <plane><normal>0 0 1</normal><size>50 20</size></plane>
           </geometry>
         </collision>
+        <visual name="v">
+          <geometry>
+            <plane><normal>0 0 1</normal><size>50 20</size></plane>
+          </geometry>
+          <material>
+            <ambient>0.3 0.5 0.2 1</ambient>
+            <diffuse>0.3 0.5 0.2 1</diffuse>
+          </material>
+        </visual>
       </link>
     </model>
 

@@ -1,5 +1,28 @@
 <model name="plant_{idx}">
   <static>true</static>
+  <link name="stem">
+    <pose>{x} {y} {stem_z} 0 0 0</pose>
+    <collision name="c">
+      <geometry>
+        <cylinder>
+          <radius>{stem_r}</radius>
+          <length>{stem_h}</length>
+        </cylinder>
+      </geometry>
+    </collision>
+    <visual name="v">
+      <geometry>
+        <cylinder>
+          <radius>{stem_r}</radius>
+          <length>{stem_h}</length>
+        </cylinder>
+      </geometry>
+      <material>
+        <ambient>0.08 0.45 0.06 1</ambient>
+        <diffuse>0.08 0.45 0.06 1</diffuse>
+      </material>
+    </visual>
+  </link>
   <link name="canopy">
     <pose>{x} {y} {canopy_z} 0 0 0</pose>
     <collision name="c">
@@ -17,4 +40,8 @@
       </material>
     </visual>
   </link>
+  <joint name="stem_canopy_joint" type="fixed">
+    <parent>stem</parent>
+    <child>canopy</child>
+  </joint>
 </model>

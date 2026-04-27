@@ -29,6 +29,6 @@
   <parent>base_link</parent>
   <child>{name}_wheel</child>
   <axis>
-    <xyz>0 0 1</xyz>
+    <xyz>0 1 0</xyz>
   </axis>
 </joint>
