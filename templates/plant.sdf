@@ -6,7 +6,7 @@
       <geometry>
         <cylinder>
           <radius>{stem_r}</radius>
-          <length>{stem_h}</length>
+          <length>{stem_len}</length>
         </cylinder>
       </geometry>
     </collision>
@@ -14,12 +14,12 @@
       <geometry>
         <cylinder>
           <radius>{stem_r}</radius>
-          <length>{stem_h}</length>
+          <length>{stem_len}</length>
         </cylinder>
       </geometry>
       <material>
-        <ambient>0.08 0.45 0.06 1</ambient>
-        <diffuse>0.08 0.45 0.06 1</diffuse>
+        <ambient>0.30 0.20 0.08 1</ambient>
+        <diffuse>0.30 0.20 0.08 1</diffuse>
       </material>
     </visual>
   </link>

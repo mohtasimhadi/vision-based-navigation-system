@@ -25,12 +25,5 @@ def main():
         print(f"[OK] {path} plants={len(world.plants)} boxes={len(world.boxes)} {fog}")
         print(f"    SDF SIZE: {len(out)}")
 
-    # Write debug.sdf from the nominal world for inspection
-    debug_world = scenarios["crop_nominal.sdf"]
-    with open("debug.sdf", "w") as f:
-        f.write(assemble(debug_world))
-    print("[OK] debug.sdf written from crop_nominal")
-
-
 if __name__ == "__main__":
     main()

@@ -6,14 +6,17 @@ def load_template(path):
 
 def _plant_sdf(p: Plant, idx: int) -> str:
     template = load_template("templates/plant.sdf")
+    # stem must reach from ground up to the bottom of the canopy sphere
+    stem_len = max(0.05, p.canopy_z - p.canopy_r)
+    stem_z   = round(stem_len / 2, 3)
     return template.format(
         idx=idx,
         x=p.x,
         y=p.y,
         canopy_z=p.canopy_z,
         canopy_r=p.canopy_r,
-        stem_z=round(p.stem_h / 2, 3),
-        stem_h=round(p.stem_h, 3),
+        stem_z=stem_z,
+        stem_len=round(stem_len, 3),
         stem_r=round(p.stem_r, 3),
         cr=p.cr,
         cg=p.cg,
