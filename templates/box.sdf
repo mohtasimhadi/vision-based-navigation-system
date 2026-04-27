@@ -1,0 +1,24 @@
+<model name="{name}">
+  <static>true</static>
+  <pose>{x} {y} {z} 0 0 0</pose>
+  <link name="link">
+    <collision name="c">
+      <geometry>
+        <box>
+          <size>{sx} {sy} {sz}</size>
+        </box>
+      </geometry>
+    </collision>
+    <visual name="v">
+      <geometry>
+        <box>
+          <size>{sx} {sy} {sz}</size>
+        </box>
+      </geometry>
+      <material>
+        <ambient>{r} {g} {b} 1</ambient>
+        <diffuse>{r} {g} {b} 1</diffuse>
+      </material>
+    </visual>
+  </link>
+</model>

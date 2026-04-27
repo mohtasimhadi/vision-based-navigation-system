@@ -16,3 +16,21 @@ def _plant_sdf(p: Plant, idx: int) -> str:
         cg=p.cg,
         cb=p.cb
     )
+
+def _box_sdf(b: Box) -> str:
+    with open("templates/box.sdf") as f:
+        template = f.read()
+
+    return template.format(
+        name=b.name,
+        x=f"{b.x:.3f}",
+        y=f"{b.y:.3f}",
+        z=f"{b.z:.3f}",
+        sx=b.sx,
+        sy=b.sy,
+        sz=b.sz,
+        r=b.r,
+        g=b.g,
+        b=b.b
+    )
+
