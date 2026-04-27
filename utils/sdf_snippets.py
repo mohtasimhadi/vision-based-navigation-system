@@ -34,3 +34,29 @@ def _box_sdf(b: Box) -> str:
         b=b.b
     )
 
+def _robot_sdf(rx: float, ry: float) -> str:
+    with open("templates/robot.sdf") as f:
+        robot_template = f.read()
+
+    with open("templates/wheel.sdf") as f:
+        wheel_template = f.read()
+
+    def make_wheel(name, jx, jy):
+        return wheel_template.format(
+            name=name,
+            jx=f"{jx:.3f}",
+            jy=f"{jy:.3f}"
+        )
+
+    wheels = "\n".join([
+        make_wheel("front_left",  0.254,  0.285),
+        make_wheel("front_right", 0.254, -0.285),
+        make_wheel("rear_left",  -0.254,  0.285),
+        make_wheel("rear_right", -0.254, -0.285),
+    ])
+
+    return robot_template.format(
+        rx=f"{rx:.3f}",
+        ry=f"{ry:.3f}",
+        wheels=wheels
+    )

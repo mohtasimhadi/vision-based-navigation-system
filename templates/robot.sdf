@@ -1,0 +1,35 @@
+<model name="husky">
+  <pose>{rx} {ry} 0.22 0 0 0</pose>
+
+  <plugin filename="gz-sim-diff-drive-system"
+          name="gz::sim::systems::DiffDrive">
+    <left_joint>front_left_wheel_joint</left_joint>
+    <left_joint>rear_left_wheel_joint</left_joint>
+    <right_joint>front_right_wheel_joint</right_joint>
+    <right_joint>rear_right_wheel_joint</right_joint>
+    <wheel_separation>0.57</wheel_separation>
+    <wheel_radius>0.15</wheel_radius>
+    <topic>/cmd_vel</topic>
+  </plugin>
+
+  <link name="base_link">
+    <collision name="c">
+      <geometry>
+        <box>
+          <size>0.90 0.57 0.22</size>
+        </box>
+      </geometry>
+    </collision>
+  </link>
+
+  {wheels}
+
+  <link name="camera_link">
+    <pose>0.45 0 0.14 0 0.349 0</pose>
+  </link>
+
+  <joint name="camera_joint" type="fixed">
+    <parent>base_link</parent>
+    <child>camera_link</child>
+  </joint>
+</model>
