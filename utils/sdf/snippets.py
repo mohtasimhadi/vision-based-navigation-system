@@ -1,4 +1,4 @@
-from .data_classes import Plant, Box
+from utils.data_classes import Plant, Box
 
 def load_template(path):
     with open(path, "r") as f:

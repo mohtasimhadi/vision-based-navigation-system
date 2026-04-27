@@ -1,6 +1,6 @@
 from pathlib import Path
 from .data_classes import World
-from utils.sdf_snippets import _plant_sdf, _box_sdf, _robot_sdf
+from .sdf.snippets import _plant_sdf, _box_sdf, _robot_sdf
 
 def assemble(w: World) -> str:
     template = "templates/world.sdf"
