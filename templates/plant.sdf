@@ -1,0 +1,20 @@
+<model name="plant_{idx}">
+  <static>true</static>
+  <link name="canopy">
+    <pose>{x} {y} {canopy_z} 0 0 0</pose>
+    <collision name="c">
+      <geometry>
+        <sphere><radius>{canopy_r}</radius></sphere>
+      </geometry>
+    </collision>
+    <visual name="v">
+      <geometry>
+        <sphere><radius>{canopy_r}</radius></sphere>
+      </geometry>
+      <material>
+        <ambient>{cr} {cg} {cb} 1</ambient>
+        <diffuse>{cr} {cg} {cb} 1</diffuse>
+      </material>
+    </visual>
+  </link>
+</model>
