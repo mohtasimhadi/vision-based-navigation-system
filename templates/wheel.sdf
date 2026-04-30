@@ -29,6 +29,6 @@
   <parent>base_link</parent>
   <child>{name}_wheel</child>
   <axis>
-    <xyz>0 1 0</xyz>
+    <xyz expressed_in="__model__">0 1 0</xyz>
   </axis>
 </joint>

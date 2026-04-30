@@ -18,7 +18,7 @@
 
     <physics name="ode_4ms" type="ode">
       <max_step_size>0.004</max_step_size>
-      <real_time_factor>1.0</real_time_factor>
+      <real_time_factor>1.5</real_time_factor>
     </physics>
 
     <light name="sun" type="directional">

@@ -32,6 +32,9 @@ def add_natural_row(
             sc = float(np.clip(1.0 + rng.normal(0, size_var), 0.65, 1.45))
 
             canopy_r = canopy_r_base * sc
+            canopy_z = (0.32 + rng.uniform(0, 0.18)) * sc + 0.22
+            stem_h   = float(np.clip(0.28 * sc + rng.uniform(-0.05, 0.08), 0.15, 0.55))
+            stem_r   = float(np.clip(0.04 + rng.uniform(-0.01, 0.01), 0.02, 0.07))
 
             # Blueberry bush — low, wide shrub proportions
             canopy_z = float(np.clip((0.14 + rng.uniform(0, 0.10)) * sc + 0.10, 0.18, 0.45))
