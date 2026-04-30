@@ -1,6 +1,40 @@
-from utils.data_classes import World
-from utils.generators import add_natural_row, add_end_posts
-from utils.data_classes import Box
+from utils.data_classes import World, Box
+from utils.generators import add_natural_row, add_terrain_tile, add_row_light, add_end_posts
+
+# ── Field geometry ────────────────────────────────────────────────────────────
+ROW_LENGTH = 9.0          # m — all plant rows run from x=0 to x=ROW_LENGTH
+X_MID      = ROW_LENGTH / 2.0
+ROW_SEP    = 1.30         # m between adjacent row centre-lines
+
+INNER_Y    = 0.65         # inner rows at ±INNER_Y  (define the C1_inner corridor)
+OUTER_Y    = 1.95         # outer rows at ±OUTER_Y  (define C2_left / C3_right)
+
+# gap = ROW_SEP - 2 * canopy_r  →  1.30 - 2*0.18 ≈ 0.94 m
+# Rover track width ≈ 0.57 m → ~19 cm clearance per side
+
+
+def _add_corridor_tiles(w: World, brightness: float = 1.0):
+    """
+    Add a differently-coloured ground tile for each of the three corridors so
+    each row visually runs over a distinct terrain type.
+    """
+    c2_y = -(INNER_Y + OUTER_Y) / 2   # centre of C2_left  corridor
+    c3_y =  (INNER_Y + OUTER_Y) / 2   # centre of C3_right corridor
+
+    bf = brightness
+    # C2_left  — dry reddish-brown soil
+    add_terrain_tile(w, X_MID, c2_y, ROW_LENGTH, ROW_SEP,
+                     r=round(0.45 * bf, 3), g=round(0.24 * bf, 3), b=round(0.10 * bf, 3),
+                     name="terrain_c2_left")
+    # C1_inner — gravel field
+    add_terrain_tile(w, X_MID, 0.0, ROW_LENGTH, ROW_SEP,
+                     r=round(0.55 * bf, 3), g=round(0.52 * bf, 3), b=round(0.48 * bf, 3),
+                     name="terrain_c1_inner")
+    # C3_right — dark moist clay
+    add_terrain_tile(w, X_MID, c3_y, ROW_LENGTH, ROW_SEP,
+                     r=round(0.28 * bf, 3), g=round(0.16 * bf, 3), b=round(0.07 * bf, 3),
+                     name="terrain_c3_right")
+
 
 # Uniform row spacing: 1.3 m between every adjacent row
 # Inner corridor = 1.3 m  (rows at +/-0.65)
@@ -14,6 +48,7 @@ def nominal() -> World:
         ambient=(0.68, 0.68, 0.68, 1.0),
         sun_dir=(-0.5, 0.1, -0.9),
     )
+    _add_corridor_tiles(w, brightness=1.0)
     add_natural_row(w, y_center=-0.65, curve_amp=0.10, curve_period=6.0,
                     y_jitter=0.06, x_jitter=0.03, size_var=0.10,
                     colour_var=0.06, canopy_r_base=0.18, seed=10)
@@ -41,6 +76,7 @@ def challenging() -> World:
         fog_start=1.5,
         fog_end=14.0,
     )
+    _add_corridor_tiles(w, brightness=0.55)
     add_natural_row(w, y_center=-0.65, curve_amp=0.16, curve_period=4.5,
                     y_jitter=0.12, x_jitter=0.07, size_var=0.20,
                     colour_var=0.14, canopy_r_base=0.20,

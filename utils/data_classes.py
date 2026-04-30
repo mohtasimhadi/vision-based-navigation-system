@@ -34,3 +34,4 @@ class World:
     fog_end: float = 14.0
     plants: List[Plant] = field(default_factory=list)
     boxes: List[Box] = field(default_factory=list)
+    lights: List[str] = field(default_factory=list)

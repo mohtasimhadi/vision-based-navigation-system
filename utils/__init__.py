@@ -1,14 +1,10 @@
 from .data_classes import World, Plant, Box
 from .scenarios import nominal, challenging
-from .generators import add_natural_row, add_end_posts
+from .generators import add_natural_row, add_terrain_tile
 from .assembler import assemble
 __all__ = [
-    "World",
-    "Plant",
-    "Box",
-    "nominal",
-    "challenging",
-    "add_natural_row",
-    "add_end_posts",
+    "World", "Plant", "Box",
+    "nominal", "challenging",
+    "add_natural_row", "add_terrain_tile",
     "assemble",
 ]

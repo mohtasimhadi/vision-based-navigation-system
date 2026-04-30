@@ -8,7 +8,7 @@ import numpy as np
 
 
 # ── Tuning constants ──────────────────────────────────────────────────────────
-ROI_TOP_FRAC   = 1 / 4   # ignore this top fraction of the image (sky/canopy)
+ROI_TOP_FRAC   = 1 / 3   # ignore this top fraction of the image (sky/canopy)
 HEADING_ALPHA  = 0.35    # EMA smoothing weight (lower = smoother, more lag)
 
 
