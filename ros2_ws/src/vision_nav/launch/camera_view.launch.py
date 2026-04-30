@@ -11,6 +11,10 @@ def generate_launch_description():
             description='Proportional gain for heading control (rad/s per px)'
         ),
         DeclareLaunchArgument(
+            'Kd', default_value='0.001',
+            description='Derivative gain to dampen oscillation'
+        ),
+        DeclareLaunchArgument(
             'linear_x', default_value='0.3',
             description='Constant forward speed (m/s)'
         ),
@@ -51,6 +55,7 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'Kp': LaunchConfiguration('Kp'),
+                'Kd': LaunchConfiguration('Kd'),
                 'linear_x': LaunchConfiguration('linear_x'),
                 'use_vp': LaunchConfiguration('use_vp'),
             }]

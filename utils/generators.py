@@ -13,6 +13,7 @@ def add_natural_row(
     curve_amp:        float = 0.06,
     curve_period:     float = 7.0,
     colour_var:       float = 0.08,
+    canopy_r_base:    float = 0.20,
     skip:             Optional[List[int]] = None,
     seed:             Optional[int]       = None,
 ):
@@ -30,7 +31,7 @@ def add_natural_row(
 
             sc = float(np.clip(1.0 + rng.normal(0, size_var), 0.65, 1.45))
 
-            canopy_r = 0.26 * sc
+            canopy_r = canopy_r_base * sc
             canopy_z = (0.32 + rng.uniform(0, 0.18)) * sc + 0.22
             stem_h   = float(np.clip(0.28 * sc + rng.uniform(-0.05, 0.08), 0.15, 0.55))
             stem_r   = float(np.clip(0.04 + rng.uniform(-0.01, 0.01), 0.02, 0.07))

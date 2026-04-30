@@ -7,7 +7,7 @@ A simulation environment and vision-based navigation stack for autonomous robot 
 The project has two layers:
 
 - **World generator** — produces Gazebo SDF world files with configurable crop rows, lighting, fog, and obstacles
-- **Navigation stack** (`vision_nav`) — a ROS 2 package that processes the robot's camera feed to estimate heading and control motion
+- **Navigation stack** (`vision_nav`) — a ROS 2 package that uses edge-based vision to detect all boundaries (plants, obstacles, posts) and steer through the widest open gap
 
 Two simulation scenarios are provided:
 
@@ -164,38 +164,38 @@ The navigation stack is custom — it does not use `move_base` or `nav2`. Only R
 | `camera_viewer` | `camera_viewer.py` | Subscribes to `/camera/image_raw`, displays raw feed with frame info overlay |
 | `row_detector` | `row_detector.py` | Converts each frame to HSV, masks crop green pixels, finds the low-green corridor, computes heading error in pixels |
 | `vanishing_point` | `vanishing_point.py` | Detects row edges, fits left/right lines, computes vanishing point for stable heading estimation |
-| `vision_pipeline` | `vision_pipeline.py` | **Unified node** — runs segmentation + row detection + vanishing point, tiles outputs into one window, and publishes heading errors |
+| `vision_pipeline` | `vision_pipeline.py` | **Unified node** — detects ALL edges (plants, obstacles, posts), finds the widest open valley between edge peaks, and publishes heading errors |
 | `visual_servo` | `visual_servo.py` | **Controller** — P-controller that converts heading error to `Twist` on `/cmd_vel` |
 
 ### Heading Error
 
-Two complementary heading estimates are produced:
-
-**1. Corridor histogram (`row_detector`)**
+**Edge-based corridor detection (`vision_pipeline`)**
 ```
-heading_error = corridor_centre_x - image_centre_x   (pixels)
+heading_error = valley_centre_x - image_centre_x   (pixels)
 ```
-- Derived from the bottom 2/3 of the frame by finding the low-green corridor between crop rows.
-- Fast but can be noisy when plants are missing or the robot is angled.
-- Negative = corridor is left of centre, positive = right.
+- Computes a Canny edge map of the bottom 2/3 of the frame (detects plants, obstacles, posts, soil boundaries — any edge).
+- Builds a per-column edge-density histogram and smooths it.
+- Finds peaks = boundaries, then returns the **centre of the widest valley between two adjacent peaks**.
+- This naturally avoids obstacles: an obstacle creates an extra peak, splitting the corridor into two valleys; the robot steers toward the wider (safer) opening.
 
-**2. Vanishing point (`vanishing_point`)**
+**Vanishing point (`vanishing_point`)**
 ```
 heading_error = vanishing_point_x - image_centre_x   (pixels)
 ```
-- Derived from the intersection of extrapolated left-row and right-row lines.
+- Derived from the intersection of extrapolated left-row and right-row lines detected by Hough transform on the edge map.
 - Geometrically stable; only moves when the robot's heading relative to the rows actually changes.
 - A confidence score (0–N) indicates how many line endpoints were detected on the weaker side.
 
-The two signals can be fused in the controller stage for robust steering.
+The controller fuses both signals: vanishing point when confident, otherwise the edge-based valley centre.
 
 ### Published Topics
 
 | Topic | Type | Source | Description |
 |-------|------|--------|-------------|
-| `/vision/heading_error` | `std_msgs/Float64` | `vision_pipeline` | Corridor histogram heading error (px) |
+| `/vision/heading_error` | `std_msgs/Float64` | `vision_pipeline` | Valley-centre heading error (px) |
 | `/vision/vp_heading_error` | `std_msgs/Float64` | `vision_pipeline` | Vanishing point heading error (px) |
 | `/vision/vp_confidence` | `std_msgs/Int32` | `vision_pipeline` | Line-detection confidence (pts) |
+| `/vision/corridor_width` | `std_msgs/Float64` | `vision_pipeline` | Width of the widest edge valley (px) |
 | `/cmd_vel` | `geometry_msgs/Twist` | `visual_servo` | Velocity commands for the differential drive |
 
 ### Tuning the Controller
@@ -203,14 +203,20 @@ The two signals can be fused in the controller stage for robust steering.
 The launch file exposes three parameters you can override on the command line:
 
 ```bash
-ros2 launch vision_nav camera_view.launch.py Kp:=0.003 linear_x:=0.2 use_vp:=false
+ros2 launch vision_nav camera_view.launch.py Kp:=0.003 Kd:=0.002 linear_x:=0.2 use_vp:=false
 ```
 
 | Parameter | Default | Effect |
 |-----------|---------|--------|
 | `Kp` | `0.005` | Proportional gain. Higher = sharper steering response. |
-| `linear_x` | `0.3` | Forward speed in m/s. Start low while tuning. |
+| `Kd` | `0.001` | Derivative gain. Dampens oscillation; increase if the robot weaves. |
+| `linear_x` | `0.3` | Base forward speed in m/s. The controller scales this down automatically when uncertain. |
 | `use_vp` | `true` | Use vanishing-point heading when confidence ≥ `min_confidence`. Falls back to histogram otherwise. |
+
+**Auto speed modulation** (no extra params):
+- Robot slows when `|heading_error|` is large.
+- Robot slows when corridor width drops below ~120 px (narrowing path / obstacle ahead).
+- Robot slows when VP confidence is zero (rows not clearly visible).
 
 ## Scenarios
 
@@ -220,7 +226,9 @@ ros2 launch vision_nav camera_view.launch.py Kp:=0.003 linear_x:=0.2 use_vp:=fal
 |-----------|-------|
 | Ambient light | 0.68 |
 | Fog | None |
-| Plant rows | 4 (sinusoidal, naturally spaced) |
+| Row spacing | 1.3 m between all rows (inner corridor = 1.3 m) |
+| Plant rows | 4 (sinusoidal, curve_amp=0.10, y_jitter=0.06) |
+| Plants | canopy_r_base=0.18 m, size_var=0.10 |
 | Obstacles | 1 end-of-row post |
 
 ### Challenging
@@ -229,8 +237,10 @@ ros2 launch vision_nav camera_view.launch.py Kp:=0.003 linear_x:=0.2 use_vp:=fal
 |-----------|-------|
 | Ambient light | 0.28 |
 | Fog density | 0.055 (range 1.5–14 m) |
-| Plant rows | 4 (increased positional jitter, missing plants) |
-| Obstacles | Crate, debris, end-of-row post |
+| Row spacing | 1.3 m between all rows (inner corridor = 1.3 m) |
+| Plant rows | 4 (sharper curves, increased jitter, missing plants) |
+| Plants | canopy_r_base=0.20 m, size_var=0.20 |
+| Obstacles | Crate (left side of corridor), debris (right side), end-of-row post |
 
 ## Robot Model
 
