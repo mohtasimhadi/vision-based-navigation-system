@@ -1,6 +1,45 @@
-from utils.data_classes import World
-from utils.generators import add_natural_row, add_end_posts
-from utils.data_classes import Box
+from utils.data_classes import World, Box
+from utils.generators import add_natural_row, add_terrain_tile, add_row_light
+
+# ── Field geometry ────────────────────────────────────────────────────────────
+ROW_LENGTH = 9.0          # m — all plant rows run from x=0 to x=ROW_LENGTH
+X_MID      = ROW_LENGTH / 2.0
+ROW_SEP    = 1.80         # m between adjacent row centre-lines
+
+INNER_Y    = 0.90         # inner rows at ±INNER_Y  (define the C1_inner corridor)
+OUTER_Y    = 2.70         # outer rows at ±OUTER_Y  (define C2_left / C3_right)
+
+# gap = ROW_SEP - 2 * CANOPY_R_INNER  →  1.80 - 2*0.23 = 1.34 m
+# Rover track width ≈ 0.57 m → ~38 cm clearance per side (very comfortable)
+CANOPY_R_INNER = 0.23
+CANOPY_R_OUTER = 0.23
+
+# Corridor side offset — obstacles sit near the row edges, well clear of centre
+SIDE_OFFSET = 0.55
+
+
+def _add_corridor_tiles(w: World, brightness: float = 1.0):
+    """
+    Add a differently-coloured ground tile for each of the three corridors so
+    each row visually runs over a distinct terrain type.
+    """
+    c2_y = -(INNER_Y + OUTER_Y) / 2   # centre of C2_left  corridor
+    c3_y =  (INNER_Y + OUTER_Y) / 2   # centre of C3_right corridor
+
+    bf = brightness
+    # C2_left  — dry reddish-brown soil
+    add_terrain_tile(w, X_MID, c2_y, ROW_LENGTH, ROW_SEP,
+                     r=round(0.45 * bf, 3), g=round(0.24 * bf, 3), b=round(0.10 * bf, 3),
+                     name="terrain_c2_left")
+    # C1_inner — gravel field
+    add_terrain_tile(w, X_MID, 0.0, ROW_LENGTH, ROW_SEP,
+                     r=round(0.55 * bf, 3), g=round(0.52 * bf, 3), b=round(0.48 * bf, 3),
+                     name="terrain_c1_inner")
+    # C3_right — dark moist clay
+    add_terrain_tile(w, X_MID, c3_y, ROW_LENGTH, ROW_SEP,
+                     r=round(0.28 * bf, 3), g=round(0.16 * bf, 3), b=round(0.07 * bf, 3),
+                     name="terrain_c3_right")
+
 
 # Uniform row spacing: 1.3 m between every adjacent row
 # Inner corridor = 1.3 m  (rows at +/-0.65)
