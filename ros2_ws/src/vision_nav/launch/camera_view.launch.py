@@ -21,22 +21,8 @@ def generate_launch_description():
 
         Node(
             package='vision_nav',
-            executable='camera_viewer',
-            name='camera_viewer',
-            output='screen'
-        ),
-
-        Node(
-            package='vision_nav',
-            executable='row_detector',
-            name='row_detector',
-            output='screen'
-        ),
-
-        Node(
-            package='vision_nav',
-            executable='vanishing_point',
-            name='vanishing_point_detector',
+            executable='vision_pipeline',
+            name='vision_pipeline',
             output='screen'
         ),
     ])
