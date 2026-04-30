@@ -10,7 +10,7 @@ from utils.data_classes import Box
 def nominal() -> World:
     w = World(
         name="crop_nominal",
-        robot_x=-0.5, robot_y=0.0,
+        robot_x=-0.5, robot_y=-1.3,
         ambient=(0.68, 0.68, 0.68, 1.0),
         sun_dir=(-0.5, 0.1, -0.9),
     )
@@ -34,7 +34,7 @@ def nominal() -> World:
 def challenging() -> World:
     w = World(
         name="crop_challenging",
-        robot_x=-0.5, robot_y=0.0,
+        robot_x=-0.5, robot_y=-1.3,
         ambient=(0.28, 0.28, 0.28, 1.0),
         sun_dir=(-0.2, 0.5, -0.45),
         fog_density=0.055,

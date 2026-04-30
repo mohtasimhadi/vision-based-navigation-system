@@ -7,10 +7,9 @@ import cv2
 import numpy as np
 
 
-PANEL_W, PANEL_H = 320, 240   # each tile in the display grid
-
-GREEN_LOW  = np.array([25,  40,  40])
-GREEN_HIGH = np.array([85, 255, 255])
+# ── Tuning constants ──────────────────────────────────────────────────────────
+ROI_TOP_FRAC   = 1 / 4   # ignore this top fraction of the image (sky/canopy)
+HEADING_ALPHA  = 0.35    # EMA smoothing weight (lower = smoother, more lag)
 
 
 class VisionPipeline(Node):
@@ -20,207 +19,118 @@ class VisionPipeline(Node):
         self.sub = self.create_subscription(
             Image, '/camera/image_raw', self._callback, 10
         )
-        self.pub_heading = self.create_publisher(Float64, '/vision/heading_error', 10)
+        self.pub_heading    = self.create_publisher(Float64, '/vision/heading_error',    10)
         self.pub_vp_heading = self.create_publisher(Float64, '/vision/vp_heading_error', 10)
-        self.pub_confidence = self.create_publisher(Int32, '/vision/vp_confidence', 10)
-        self.pub_corridor_w = self.create_publisher(Float64, '/vision/corridor_width', 10)
-        self._morph_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-        self._prev_corridor_x = None
-        self.get_logger().info('Vision pipeline ready.')
+        self.pub_confidence = self.create_publisher(Int32,   '/vision/vp_confidence',    10)
+        self.pub_corridor_w = self.create_publisher(Float64, '/vision/corridor_width',   10)
+        self.pub_left_peak  = self.create_publisher(Float64, '/vision/left_peak',        10)
+        self.pub_right_peak = self.create_publisher(Float64, '/vision/right_peak',       10)
+        self._heading_smooth = 0.0
+        self.get_logger().info('Vision pipeline (wall-gap) ready.')
 
     def _callback(self, msg: Image):
         frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-        h, w = frame.shape[:2]
-        roi_top = h // 3
+        h, w  = frame.shape[:2]
 
-        # ── Step 2: Edge-based corridor detection ─────────────────────────
-        # Detect ALL edges (plants, obstacles, posts, soil boundaries...)
         gray  = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        edges = cv2.Canny(gray[roi_top:, :], 50, 150)
+        edges = cv2.Canny(gray, 50, 150)
 
-        # Column edge density: high = boundary, low = open space
-        col_edges = np.sum(edges > 0, axis=0).astype(np.float32)
+        heading, clear, left_wall_x, right_wall_x = _wall_gap_heading(edges, w, h)
 
-        # Find the widest open valley between edge peaks
-        corridor_x, corridor_width, left_peak, right_peak = _find_widest_valley(
-            col_edges, w, self._prev_corridor_x
-        )
-        self._prev_corridor_x = corridor_x
-        heading_hist = corridor_x - w // 2
+        # EMA smoothing; reset immediately when path is clear
+        if clear:
+            self._heading_smooth = 0.0
+        else:
+            self._heading_smooth = (HEADING_ALPHA * heading
+                                    + (1.0 - HEADING_ALPHA) * self._heading_smooth)
 
-        # Keep green mask for display only
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        green_mask = cv2.inRange(hsv, GREEN_LOW, GREEN_HIGH)
-        green_mask = cv2.morphologyEx(green_mask, cv2.MORPH_OPEN, self._morph_kernel)
+        gap_width = float(right_wall_x - left_wall_x)
 
-        row_ann = _draw_row_detection(frame, green_mask, corridor_x, heading_hist,
-                                      roi_top, corridor_width, left_peak, right_peak)
+        self.pub_heading.publish(Float64(data=self._heading_smooth))
+        self.pub_vp_heading.publish(Float64(data=self._heading_smooth))
+        self.pub_confidence.publish(Int32(data=int(clear)))
+        self.pub_corridor_w.publish(Float64(data=gap_width))
+        self.pub_left_peak.publish(Float64(data=float(left_wall_x)))
+        self.pub_right_peak.publish(Float64(data=float(right_wall_x)))
 
-        # ── Step 3: Vanishing point (uses all edges) ──────────────────────
-        lines = cv2.HoughLinesP(
-            edges, 1, np.pi / 180, threshold=40,
-            minLineLength=30, maxLineGap=15
-        )
-
-        left_pts, right_pts = [], []
-        vp_ann = frame.copy()
-
-        if lines is not None:
-            for seg in lines:
-                x1, y1, x2, y2 = seg[0]
-                if x2 == x1:
-                    continue
-                slope = (y2 - y1) / (x2 - x1)
-                if abs(slope) < 0.3 or abs(slope) > 10.0:
-                    continue
-                fy1, fy2 = y1 + roi_top, y2 + roi_top
-                if slope < 0:
-                    left_pts += [(x1, y1), (x2, y2)]
-                    cv2.line(vp_ann, (x1, fy1), (x2, fy2), (255, 100, 0), 1)
-                else:
-                    right_pts += [(x1, y1), (x2, y2)]
-                    cv2.line(vp_ann, (x1, fy1), (x2, fy2), (0, 100, 255), 1)
-
-        vp_x, vp_confidence = w // 2, 0
-        left_fit, right_fit = _fit_line(left_pts), _fit_line(right_pts)
-
-        if left_fit and right_fit:
-            ix, iy = _intersect(left_fit, right_fit)
-            iy_full = iy + roi_top
-            if 0 < ix < w and iy_full < h * 2 // 3:
-                vp_x, vp_confidence = int(ix), min(len(left_pts), len(right_pts))
-                cv2.circle(vp_ann, (vp_x, int(iy_full)),  8, (0, 255, 255), -1)
-                cv2.circle(vp_ann, (vp_x, int(iy_full)), 14, (0, 255, 255),  2)
-
-        heading_vp = vp_x - w // 2
-
-        # Publish data for the controller
-        self.pub_heading.publish(Float64(data=float(heading_hist)))
-        self.pub_vp_heading.publish(Float64(data=float(heading_vp)))
-        self.pub_confidence.publish(Int32(data=vp_confidence))
-        self.pub_corridor_w.publish(Float64(data=float(corridor_width)))
-
-        cv2.line(vp_ann, (0, roi_top), (w, roi_top), (0, 220, 220), 1)
-        cv2.line(vp_ann, (w // 2, roi_top), (w // 2, h), (255, 255, 255), 1)
-        cv2.putText(vp_ann, f'err: {heading_vp:+d}px  conf:{vp_confidence}',
-                    (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
-
-        # ── Tile into one window ──────────────────────────────────────────
-        panels = [
-            ('Camera Feed',     frame),
-            ('Edge Mask',       cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)),
-            ('Row Detection',   row_ann),
-            ('Canny Edges',     cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)),
-            ('Vanishing Point', vp_ann),
-            ('',                _summary_panel(heading_hist, heading_vp, vp_confidence, corridor_width)),
-        ]
-
-        tiles = []
-        for title, img in panels:
-            tile = cv2.resize(img, (PANEL_W, PANEL_H))
-            if title:
-                cv2.putText(tile, title, (6, 16),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
-            tiles.append(tile)
-
-        display = np.vstack([np.hstack(tiles[:3]), np.hstack(tiles[3:])])
-        cv2.imshow('Vision Pipeline', display)
-        cv2.waitKey(1)
+        _draw_debug(frame, edges, heading, clear, left_wall_x, right_wall_x, w, h)
 
 
-# ── Corridor detection ───────────────────────────────────────────────────────
+# ── Core algorithm ────────────────────────────────────────────────────────────
 
-def _find_widest_valley(hist, img_w, prev_x):
-    """Smooth the edge-density histogram, find peaks, and return the centre
-    of the widest valley between two adjacent peaks.  This naturally steers
-    the robot toward the largest open gap, avoiding obstacles that create
-    extra peaks."""
-    smooth = cv2.GaussianBlur(hist.reshape(1, -1), (0, 21), 5).flatten()
+def _wall_gap_heading(edges, img_w, img_h):
+    """
+    Collapse the lower portion of the edge image into a 1-D occupancy row.
 
-    # Local maxima = edge clusters (rows, obstacles, posts...)
-    peaks = []
-    for i in range(10, len(smooth) - 10):
-        if smooth[i] > smooth[i-1] and smooth[i] > smooth[i+1]:
-            if smooth[i] > smooth.max() * 0.08:
-                peaks.append(i)
+    Left wall:  rightmost occupied column in the left  image half  → inner boundary of left  plants
+    Right wall: leftmost  occupied column in the right image half  → inner boundary of right plants
 
-    if len(peaks) >= 2:
-        peaks = sorted(peaks)
-        # Widest valley between adjacent peaks = safest path
-        best = None
-        best_w = 0
-        for i in range(len(peaks) - 1):
-            width = peaks[i+1] - peaks[i]
-            if width > best_w:
-                best_w = width
-                best = (peaks[i], peaks[i+1])
+    The safe corridor is the gap between those two boundaries.
+    Heading = gap_centre - image_centre  (positive → gap is right of centre → steer right).
+    Clear = no wall edges found on either side (row has ended).
+    """
+    roi_top  = int(img_h * ROI_TOP_FRAC)
+    band     = edges[roi_top:, :]
+    occupied = np.any(band > 0, axis=0)   # True where any row in the band has an edge
 
-        if best and best_w >= 60:  # at least 60 px wide
-            lp, rp = best
-            return (lp + rp) // 2, float(best_w), lp, rp
+    cx = img_w // 2
 
-    # Fallback: temporal coherence or image centre
-    if prev_x is not None:
-        return prev_x, 200.0, prev_x - 80, prev_x + 80
-    return img_w // 2, 200.0, img_w // 2 - 80, img_w // 2 + 80
+    left_cols  = np.where(occupied[:cx])[0]       # occupied columns in left  half
+    right_cols = np.where(occupied[cx:])[0] + cx  # occupied columns in right half
+
+    no_left  = len(left_cols)  == 0
+    no_right = len(right_cols) == 0
+
+    left_wall_x  = int(left_cols[-1])  if not no_left  else 0
+    right_wall_x = int(right_cols[0])  if not no_right else img_w - 1
+
+    clear      = no_left and no_right
+    gap_centre = (left_wall_x + right_wall_x) / 2.0
+    heading    = gap_centre - cx   # positive → steer right, negative → steer left
+
+    return heading, clear, left_wall_x, right_wall_x
 
 
-# ── Drawing helpers ──────────────────────────────────────────────────────────
+# ── Debug visualisation ───────────────────────────────────────────────────────
 
-def _draw_row_detection(frame, green_mask, corridor_x, heading_error, roi_top,
-                        corridor_width, left_peak, right_peak):
-    h, w = frame.shape[:2]
+def _draw_debug(frame, edges, heading, clear, left_wall_x, right_wall_x, w, h):
     ann = frame.copy()
-    overlay = np.zeros_like(frame)
-    overlay[green_mask > 0] = (0, 200, 0)
-    ann = cv2.addWeighted(ann, 1.0, overlay, 0.4, 0)
+    cx  = w // 2
+    roi_top = int(h * ROI_TOP_FRAC)
+
+    # ROI boundary
     cv2.line(ann, (0, roi_top), (w, roi_top), (0, 220, 220), 1)
-    cv2.line(ann, (w // 2, roi_top), (w // 2, h), (255, 255, 255), 1)
-    cv2.line(ann, (corridor_x, roi_top), (corridor_x, h), (0, 0, 255), 2)
 
-    # Mark the detected boundary peaks
-    cv2.line(ann, (left_peak,  roi_top), (left_peak,  roi_top + 15), (255, 255, 0), 2)
-    cv2.line(ann, (right_peak, roi_top), (right_peak, roi_top + 15), (255, 255, 0), 2)
+    # Don't-go-zone shading: left plant wall (red) and right plant wall (red)
+    overlay = ann.copy()
+    cv2.rectangle(overlay, (0, roi_top), (left_wall_x, h - 1),  (0, 0, 120), -1)
+    cv2.rectangle(overlay, (right_wall_x, roi_top), (w - 1, h - 1), (0, 0, 120), -1)
+    cv2.addWeighted(overlay, 0.35, ann, 0.65, 0, ann)
 
-    cv2.putText(ann, f'err:{heading_error:+d}px w:{int(corridor_width)}',
-                (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
-    return ann
+    # Wall boundary lines
+    cv2.line(ann, (left_wall_x,  roi_top), (left_wall_x,  h - 1), (0, 0, 255), 2)
+    cv2.line(ann, (right_wall_x, roi_top), (right_wall_x, h - 1), (0, 0, 255), 2)
 
+    # Gap centre target and image centre reference
+    gap_centre = int((left_wall_x + right_wall_x) / 2)
+    cv2.line(ann, (cx,         roi_top), (cx,         h - 1), (255, 255, 255), 1)
+    cv2.line(ann, (gap_centre, roi_top), (gap_centre, h - 1),
+             (0, 255, 0) if clear else (0, 255, 255), 2)
 
-def _summary_panel(heading_hist: int, heading_vp: int, confidence: int, corridor_width: float):
-    panel = np.zeros((480, 640, 3), dtype=np.uint8)
-    rows = [
-        ('Heading summary', (0, 255, 255)),
-        ('',                (0, 0, 0)),
-        (f'  Histogram : {heading_hist:+d} px', (200, 200, 200)),
-        (f'  Vanish pt : {heading_vp:+d} px',  (200, 200, 200)),
-        (f'  VP conf   : {confidence} pts',     (200, 200, 200)),
-        (f'  Valley w  : {corridor_width:.0f} px', (200, 200, 200)),
-    ]
-    for i, (txt, colour) in enumerate(rows):
-        cv2.putText(panel, txt, (20, 40 + i * 40),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, colour, 1)
-    return panel
+    # Edge panel
+    edge_bgr = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+    cv2.line(edge_bgr, (0, roi_top), (w, roi_top), (0, 220, 220), 1)
+    cv2.line(edge_bgr, (left_wall_x,  roi_top), (left_wall_x,  h - 1), (0, 0, 255), 2)
+    cv2.line(edge_bgr, (right_wall_x, roi_top), (right_wall_x, h - 1), (0, 0, 255), 2)
 
+    status = 'CLEAR' if clear else f'L:{left_wall_x}  R:{right_wall_x}  gap:{right_wall_x - left_wall_x}px'
+    cv2.putText(ann, f'err:{heading:+.1f}px  {status}',
+                (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 1)
 
-# ── Geometry helpers ─────────────────────────────────────────────────────────
-
-def _fit_line(pts):
-    if len(pts) < 2:
-        return None
-    xs = np.array([p[0] for p in pts], dtype=np.float32)
-    ys = np.array([p[1] for p in pts], dtype=np.float32)
-    m, b = np.polyfit(xs, ys, 1)
-    return (float(m), float(b))
-
-
-def _intersect(left, right):
-    m1, b1 = left
-    m2, b2 = right
-    if abs(m1 - m2) < 1e-6:
-        return (0.0, 0.0)
-    x = (b2 - b1) / (m1 - m2)
-    return (x, m1 * x + b1)
+    cv2.imshow('Vision Pipeline',
+               np.hstack([cv2.resize(ann,      (640, 480)),
+                          cv2.resize(edge_bgr, (640, 480))]))
+    cv2.waitKey(1)
 
 
 def main(args=None):
