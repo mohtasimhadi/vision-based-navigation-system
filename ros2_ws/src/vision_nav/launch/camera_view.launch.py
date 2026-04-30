@@ -15,7 +15,7 @@ def generate_launch_description():
             description='Derivative gain to dampen oscillation'
         ),
         DeclareLaunchArgument(
-            'linear_x', default_value='0.3',
+            'linear_x', default_value='0.2',
             description='Constant forward speed (m/s)'
         ),
         DeclareLaunchArgument(

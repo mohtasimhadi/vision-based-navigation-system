@@ -30,9 +30,9 @@ class FieldTraverser(Node):
         self.linear_x = self.declare_parameter('linear_x', 0.35).value
         self.max_angular_z = self.declare_parameter('max_angular_z', 1.2).value
 
-        self.turn_speed = 0.6          # rad/s for 90° turns
+        self.turn_speed = 0.2          # rad/s for 90° turns
         self.transverse_speed = 0.25   # m/s for headland driving
-        self.align_speed = 0.5         # rad/s for corridor search
+        self.align_speed = 0.2         # rad/s for corridor search
         self.row_length = 9.5          # m, visual-cue backup distance
 
         # ── Vision state ──────────────────────────────────────────────────
@@ -77,6 +77,7 @@ class FieldTraverser(Node):
 
         self._trip_dist = 0.0          # distance since last state change
         self._turn_start_yaw = 0.0
+        self._no_edge_since = None     # time when clear/no-edge streak started
 
         self.get_logger().info(
             'Field traverser ready. Start=%s Kp=%.4f Kd=%.4f lin=%.2f' %
@@ -108,8 +109,8 @@ class FieldTraverser(Node):
     # ── Helpers ──────────────────────────────────────────────────────────
 
     def _heading_error(self):
-        if self.vp_confidence >= 2:
-            return self.heading_vp
+        if self.vp_confidence == 0:  # path blocked = crop walls visible = use scan-line
+            return self.heading_hist
         return self.heading_hist
 
     def _steer(self, heading):
@@ -123,13 +124,13 @@ class FieldTraverser(Node):
             factor *= 0.5
         elif self.corridor_width < 120.0:
             factor *= 0.75
-        if self.vp_confidence == 0:
+        if self.vp_confidence == 1:  # path clear = no row walls = slow at row end
             factor *= 0.6
         return factor
 
     def _end_of_row(self):
         """Visual end-of-row detection."""
-        visual = (self.vp_confidence == 0 or self.corridor_width > 300)
+        visual = (self.vp_confidence == 1 or self.corridor_width > 300)
         return visual and self._trip_dist > 7.0
 
     # ── Control loop ─────────────────────────────────────────────────────
@@ -156,7 +157,19 @@ class FieldTraverser(Node):
             twist.angular.z = self._steer(heading)
             self._trip_dist += abs(twist.linear.x) * dt
 
-            if self._end_of_row():
+            if self.vp_confidence == 1:  # clear — no edge in scan band
+                if self._no_edge_since is None:
+                    self._no_edge_since = now
+                no_edge_secs = (now - self._no_edge_since).nanoseconds / 1e9
+            else:
+                self._no_edge_since = None
+                no_edge_secs = 0.0
+
+            no_edge_timeout = no_edge_secs >= 3.0 and self._trip_dist > 7.0
+            if no_edge_timeout:
+                self.get_logger().info('No edge detected for 3 s → end of row')
+
+            if self._end_of_row() or no_edge_timeout:
                 if self.corridor_idx >= 2:
                     self._change_state('DONE')
                 else:
@@ -166,7 +179,6 @@ class FieldTraverser(Node):
             # Turn left 90° (from +X to +Y)
             twist.linear.x = 0.0
             twist.angular.z = self.turn_speed
-            self.yaw += twist.angular.z * dt
             if self.yaw - self._turn_start_yaw >= math.pi / 2 - 0.05:
                 self._change_state('TRANSVERSE')
 
@@ -182,7 +194,6 @@ class FieldTraverser(Node):
             # Turn right 90° (from +Y back to +X)
             twist.linear.x = 0.0
             twist.angular.z = -self.turn_speed
-            self.yaw += twist.angular.z * dt
             if self._turn_start_yaw - self.yaw >= math.pi / 2 - 0.05:
                 self._change_state('ALIGN')
 
@@ -190,7 +201,6 @@ class FieldTraverser(Node):
             # Fine-tune: spin slowly until corridor is solidly ahead
             twist.linear.x = 0.0
             twist.angular.z = self.align_speed * 0.3
-            self.yaw += twist.angular.z * dt
             if self.corridor_width > 100 and abs(self.heading_hist) < 50:
                 self.corridor_idx += 1
                 self._change_state('FOLLOW')
@@ -223,6 +233,7 @@ class FieldTraverser(Node):
         self.state = new_state
         self._trip_dist = 0.0
         self._turn_start_yaw = self.yaw
+        self._no_edge_since = None
 
 
 def main(args=None):
