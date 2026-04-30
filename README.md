@@ -39,9 +39,18 @@ vision-based-navigation-system/
 │       └── vision_nav/         # Vision navigation package
 │           ├── vision_nav/
 │           │   ├── camera_viewer.py    # Camera feed subscriber + OpenCV display
-│           │   └── row_detector.py     # HSV segmentation + corridor detection
+│           │   ├── row_detector.py     # HSV segmentation + corridor detection
+│           │   ├── vanishing_point.py  # Vanishing point heading estimation
+│           │   └── vision_pipeline.py  # Unified single-window pipeline
+│           ├── package.xml           # ROS 2 package manifest
+│           ├── setup.py              # Python package setup
+│           ├── setup.cfg             # ament_python develop config
 │           └── launch/
 │               └── camera_view.launch.py   # Bridge + viewer launch file
+├── scripts/                    # Convenience launchers
+│   ├── run_sim.sh              # Launch Gazebo
+│   ├── run_ros2.sh             # Build + launch ROS 2 nav stack
+│   └── run_all.sh              # Launch both in separate terminals
 └── worlds/                     # Generated SDF output (gitignored)
 ```
 
@@ -87,6 +96,26 @@ gz sim worlds/crop_nominal.sdf
 
 ## Running the Navigation Stack
 
+### Quick Start (Convenience Scripts)
+
+From the project root, run both in separate terminals:
+
+```bash
+./scripts/run_all.sh [nominal|challenging]
+```
+
+Or run them individually:
+
+```bash
+# Terminal 1 — Gazebo
+./scripts/run_sim.sh nominal
+
+# Terminal 2 — ROS 2 nav stack
+./scripts/run_ros2.sh
+```
+
+### Manual Start
+
 **Terminal 1 — Gazebo:**
 
 ```bash
@@ -103,7 +132,7 @@ source install/setup.bash
 ros2 launch vision_nav camera_view.launch.py
 ```
 
-The launch file starts a `ros_gz_bridge` node that bridges the Gazebo camera topic to ROS 2, then starts the `camera_viewer` node which displays the live feed in an OpenCV window.
+The launch file starts a `ros_gz_bridge` node that bridges the Gazebo camera topic to ROS 2, then starts the `vision_pipeline` node which displays the live feed, green mask, row detection, Canny edges, and vanishing point in a single tiled OpenCV window.
 
 ## Navigation Architecture
 
@@ -128,16 +157,30 @@ The navigation stack is custom — it does not use `move_base` or `nav2`. Only R
 |------|------|--------------|
 | `camera_viewer` | `camera_viewer.py` | Subscribes to `/camera/image_raw`, displays raw feed with frame info overlay |
 | `row_detector` | `row_detector.py` | Converts each frame to HSV, masks crop green pixels, finds the low-green corridor, computes heading error in pixels |
+| `vanishing_point` | `vanishing_point.py` | Detects row edges, fits left/right lines, computes vanishing point for stable heading estimation |
+| `vision_pipeline` | `vision_pipeline.py` | **Unified node** — runs segmentation + row detection + vanishing point and tiles all outputs into one window |
 
-### Heading error
+### Heading Error
 
-`row_detector` outputs a heading error defined as:
+Two complementary heading estimates are produced:
 
+**1. Corridor histogram (`row_detector`)**
 ```
 heading_error = corridor_centre_x - image_centre_x   (pixels)
 ```
+- Derived from the bottom 2/3 of the frame by finding the low-green corridor between crop rows.
+- Fast but can be noisy when plants are missing or the robot is angled.
+- Negative = corridor is left of centre, positive = right.
 
-Negative = corridor is left of centre, positive = right. This value drives the visual servoing controller in the next stage.
+**2. Vanishing point (`vanishing_point`)**
+```
+heading_error = vanishing_point_x - image_centre_x   (pixels)
+```
+- Derived from the intersection of extrapolated left-row and right-row lines.
+- Geometrically stable; only moves when the robot's heading relative to the rows actually changes.
+- A confidence score (0–N) indicates how many line endpoints were detected on the weaker side.
+
+The two signals can be fused in the controller stage for robust steering.
 
 ## Scenarios
 
@@ -166,6 +209,20 @@ Four-wheeled differential-drive platform modeled after the Clearpath Husky:
 - Differential drive plugin on `/cmd_vel`
 - Forward-facing camera (640×480, 30 fps, 60° FOV) mounted at 0.45 m forward, 20° downward pitch
 - Camera publishes on Gazebo topic `/camera`, bridged to `/camera/image_raw` in ROS 2
+
+## Development Roadmap (Baby Steps)
+
+| Step | Component | Status | What it teaches |
+|------|-----------|--------|-----------------|
+| 1 | Camera bridge + OpenCV viewer | ✅ Done | ROS 2 ↔ Gazebo image pipeline (`ros_gz_bridge`, `cv_bridge`) |
+| 2 | HSV color segmentation | ✅ Done | Color spaces, masking, morphological operations |
+| 3 | Vanishing point estimation | ✅ Done | Edge detection, Hough transform, line clustering, intersection geometry |
+| 4 | Visual servoing controller | 🔜 Next | Closed-loop control: heading error → P/PD controller → `/cmd_vel` |
+| 5 | KLT feature tracking | 🔜 Future | Sparse optical flow, Lucas-Kanade |
+| 6 | Dense optical flow | 🔜 Future | Farneback motion field, divergence analysis |
+| 7 | Flow + segmentation fusion | 🔜 Future | Sensor fusion at the perception level |
+| 8 | Traversability grid | 🔜 Future | Homography, top-down projection |
+| 9 | Custom planner | 🔜 Future | Planning vs reactive control |
 
 ## How the World Generator Works
 
