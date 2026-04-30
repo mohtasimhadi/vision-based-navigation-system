@@ -1,6 +1,7 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
+from std_msgs.msg import Float64, Int32
 from cv_bridge import CvBridge
 import cv2
 import numpy as np
@@ -19,6 +20,9 @@ class VisionPipeline(Node):
         self.sub = self.create_subscription(
             Image, '/camera/image_raw', self._callback, 10
         )
+        self.pub_heading = self.create_publisher(Float64, '/vision/heading_error', 10)
+        self.pub_vp_heading = self.create_publisher(Float64, '/vision/vp_heading_error', 10)
+        self.pub_confidence = self.create_publisher(Int32, '/vision/vp_confidence', 10)
         self._morph_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
         self.get_logger().info('Vision pipeline ready.')
 
@@ -80,6 +84,11 @@ class VisionPipeline(Node):
                 cv2.circle(vp_ann, (vp_x, int(iy_full)), 14, (0, 255, 255),  2)
 
         heading_vp = vp_x - w // 2
+
+        # Publish data for the controller
+        self.pub_heading.publish(Float64(data=float(heading_hist)))
+        self.pub_vp_heading.publish(Float64(data=float(heading_vp)))
+        self.pub_confidence.publish(Int32(data=vp_confidence))
 
         cv2.line(vp_ann, (0, roi_top), (w, roi_top), (0, 220, 220), 1)
         cv2.line(vp_ann, (w // 2, roi_top), (w // 2, h), (255, 255, 255), 1)

@@ -6,23 +6,53 @@ from launch.substitutions import LaunchConfiguration
 
 def generate_launch_description():
     return LaunchDescription([
+        DeclareLaunchArgument(
+            'Kp', default_value='0.005',
+            description='Proportional gain for heading control (rad/s per px)'
+        ),
+        DeclareLaunchArgument(
+            'linear_x', default_value='0.3',
+            description='Constant forward speed (m/s)'
+        ),
+        DeclareLaunchArgument(
+            'use_vp', default_value='true',
+            description='Use vanishing-point heading when confidence is high'
+        ),
+
+        # Bridge: Gazebo /camera  →  ROS 2 /camera/image_raw
+        # Bridge: ROS 2 /cmd_vel  →  Gazebo /cmd_vel
         Node(
             package='ros_gz_bridge',
             executable='parameter_bridge',
-            name='camera_bridge',
+            name='bridge',
             arguments=[
-                '/camera@sensor_msgs/msg/Image[gz.msgs.Image'
+                '/camera@sensor_msgs/msg/Image[gz.msgs.Image',
+                '/cmd_vel@geometry_msgs/msg/Twist]gz.msgs.Twist',
             ],
             remappings=[
-                ('/camera', '/camera/image_raw')
+                ('/camera', '/camera/image_raw'),
             ],
             output='screen'
         ),
 
+        # Vision pipeline: segmentation + vanishing point + display
         Node(
             package='vision_nav',
             executable='vision_pipeline',
             name='vision_pipeline',
             output='screen'
+        ),
+
+        # Visual servo controller: heading error → /cmd_vel
+        Node(
+            package='vision_nav',
+            executable='visual_servo',
+            name='visual_servo',
+            output='screen',
+            parameters=[{
+                'Kp': LaunchConfiguration('Kp'),
+                'linear_x': LaunchConfiguration('linear_x'),
+                'use_vp': LaunchConfiguration('use_vp'),
+            }]
         ),
     ])
