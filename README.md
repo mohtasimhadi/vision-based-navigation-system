@@ -42,7 +42,8 @@ vision-based-navigation-system/
 │           │   ├── row_detector.py     # HSV segmentation + corridor detection
 │           │   ├── vanishing_point.py  # Vanishing point heading estimation
 │           │   ├── vision_pipeline.py  # Unified single-window pipeline
-│           │   └── visual_servo.py     # P-controller → /cmd_vel
+│           │   ├── visual_servo.py     # P-controller → /cmd_vel
+│           │   └── field_traverser.py  # Multi-row field traversal state machine
 │           ├── package.xml           # ROS 2 package manifest
 │           ├── setup.py              # Python package setup
 │           ├── setup.cfg             # ament_python develop config
@@ -137,8 +138,8 @@ The launch file starts three things:
 1. `ros_gz_bridge` — bidirectional bridge:
    - Gazebo `/camera` → ROS 2 `/camera/image_raw`
    - ROS 2 `/cmd_vel` → Gazebo `/cmd_vel`
-2. `vision_pipeline` — displays the live feed, green mask, row detection, Canny edges, and vanishing point in a single tiled OpenCV window, **and publishes heading errors**.
-3. `visual_servo` — subscribes to the heading errors and publishes `Twist` messages to `/cmd_vel`, making the robot drive forward and steer autonomously.
+2. `vision_pipeline` — displays the live feed, edge mask, row detection, Canny edges, and vanishing point in a single tiled OpenCV window, **and publishes heading errors + edge peak positions**.
+3. `field_traverser` — state machine that follows each corridor to the end, turns onto the headland, transverses to the next row, aligns, and repeats until all 3 corridors are traversed.
 
 ## Navigation Architecture
 
@@ -165,7 +166,8 @@ The navigation stack is custom — it does not use `move_base` or `nav2`. Only R
 | `row_detector` | `row_detector.py` | Converts each frame to HSV, masks crop green pixels, finds the low-green corridor, computes heading error in pixels |
 | `vanishing_point` | `vanishing_point.py` | Detects row edges, fits left/right lines, computes vanishing point for stable heading estimation |
 | `vision_pipeline` | `vision_pipeline.py` | **Unified node** — detects ALL edges (plants, obstacles, posts), finds the widest open valley between edge peaks, and publishes heading errors |
-| `visual_servo` | `visual_servo.py` | **Controller** — P-controller that converts heading error to `Twist` on `/cmd_vel` |
+| `visual_servo` | `visual_servo.py` | **Controller** — P-controller that converts heading error to `Twist` on `/cmd_vel` (standalone) |
+| `field_traverser` | `field_traverser.py` | **Field traverser** — state machine that drives down all 3 corridors sequentially |
 
 ### Heading Error
 
@@ -196,7 +198,9 @@ The controller fuses both signals: vanishing point when confident, otherwise the
 | `/vision/vp_heading_error` | `std_msgs/Float64` | `vision_pipeline` | Vanishing point heading error (px) |
 | `/vision/vp_confidence` | `std_msgs/Int32` | `vision_pipeline` | Line-detection confidence (pts) |
 | `/vision/corridor_width` | `std_msgs/Float64` | `vision_pipeline` | Width of the widest edge valley (px) |
-| `/cmd_vel` | `geometry_msgs/Twist` | `visual_servo` | Velocity commands for the differential drive |
+| `/vision/left_peak` | `std_msgs/Float64` | `vision_pipeline` | X-position of left edge peak (px) |
+| `/vision/right_peak` | `std_msgs/Float64` | `vision_pipeline` | X-position of right edge peak (px) |
+| `/cmd_vel` | `geometry_msgs/Twist` | `field_traverser` | Velocity commands for the differential drive |
 
 ### Tuning the Controller
 
@@ -213,10 +217,17 @@ ros2 launch vision_nav camera_view.launch.py Kp:=0.003 Kd:=0.002 linear_x:=0.2 u
 | `linear_x` | `0.3` | Base forward speed in m/s. The controller scales this down automatically when uncertain. |
 | `use_vp` | `true` | Use vanishing-point heading when confidence ≥ `min_confidence`. Falls back to histogram otherwise. |
 
-**Auto speed modulation** (no extra params):
-- Robot slows when `|heading_error|` is large.
-- Robot slows when corridor width drops below ~120 px (narrowing path / obstacle ahead).
-- Robot slows when VP confidence is zero (rows not clearly visible).
+**Field traversal pattern**
+```
+FOLLOW C2_left forward → TURN_PRE 90° left → TRANSVERSE 1.3 m → TURN_POST 90° right → ALIGN →
+FOLLOW C1_inner forward → TURN_PRE 90° left → TRANSVERSE 1.3 m → TURN_POST 90° right → ALIGN →
+FOLLOW C3_right forward → DONE
+```
+- Robot starts at the **leftmost corridor** (y = -1.3) and works rightward across the field.
+- End-of-row is detected visually (rows disappear from view) with a distance backup.
+- Transverse uses dead-reckoning from `/cmd_vel` integration.
+- TURN_PRE / TURN_POST are timed 90° turns onto/off the headland.
+- ALIGN fine-tunes until the new corridor is solidly ahead.
 
 ## Scenarios
 
@@ -230,6 +241,7 @@ ros2 launch vision_nav camera_view.launch.py Kp:=0.003 Kd:=0.002 linear_x:=0.2 u
 | Plant rows | 4 (sinusoidal, curve_amp=0.10, y_jitter=0.06) |
 | Plants | canopy_r_base=0.18 m, size_var=0.10 |
 | Obstacles | 1 end-of-row post |
+| Start position | Robot begins at the **left corridor** (y = -1.3) |
 
 ### Challenging
 
@@ -241,6 +253,7 @@ ros2 launch vision_nav camera_view.launch.py Kp:=0.003 Kd:=0.002 linear_x:=0.2 u
 | Plant rows | 4 (sharper curves, increased jitter, missing plants) |
 | Plants | canopy_r_base=0.20 m, size_var=0.20 |
 | Obstacles | Crate (left side of corridor), debris (right side), end-of-row post |
+| Start position | Robot begins at the **left corridor** (y = -1.3) |
 
 ## Robot Model
 

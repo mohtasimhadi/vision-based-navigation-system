@@ -7,10 +7,11 @@ import cv2
 import numpy as np
 
 
-PANEL_W, PANEL_H = 320, 240   # each tile in the display grid
-
-GREEN_LOW  = np.array([25,  40,  40])
-GREEN_HIGH = np.array([85, 255, 255])
+# ── Tuning constants ─────────────────────────────────────────────────────────
+SCANLINE_FRAC   = 0.25   # scan line at this fraction of image height (0=top, 1=bottom)
+ROVER_HALF_PX   = 65     # half rover width projected onto the scan line (pixels)
+EDGE_BAND_HALF  = 10      # use a ±band of rows around the scan line for robustness
+MIN_GAP_PX      = 40     # a gap narrower than this is not a usable path
 
 
 class VisionPipeline(Node):
@@ -20,207 +21,149 @@ class VisionPipeline(Node):
         self.sub = self.create_subscription(
             Image, '/camera/image_raw', self._callback, 10
         )
-        self.pub_heading = self.create_publisher(Float64, '/vision/heading_error', 10)
+        self.pub_heading    = self.create_publisher(Float64, '/vision/heading_error',    10)
         self.pub_vp_heading = self.create_publisher(Float64, '/vision/vp_heading_error', 10)
-        self.pub_confidence = self.create_publisher(Int32, '/vision/vp_confidence', 10)
-        self.pub_corridor_w = self.create_publisher(Float64, '/vision/corridor_width', 10)
-        self._morph_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-        self._prev_corridor_x = None
-        self.get_logger().info('Vision pipeline ready.')
+        self.pub_confidence = self.create_publisher(Int32,   '/vision/vp_confidence',    10)
+        self.pub_corridor_w = self.create_publisher(Float64, '/vision/corridor_width',   10)
+        self.pub_left_peak  = self.create_publisher(Float64, '/vision/left_peak',        10)
+        self.pub_right_peak = self.create_publisher(Float64, '/vision/right_peak',       10)
+        self.get_logger().info('Vision pipeline (scan-line) ready.')
 
     def _callback(self, msg: Image):
         frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-        h, w = frame.shape[:2]
-        roi_top = h // 3
+        h, w  = frame.shape[:2]
 
-        # ── Step 2: Edge-based corridor detection ─────────────────────────
-        # Detect ALL edges (plants, obstacles, posts, soil boundaries...)
         gray  = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        edges = cv2.Canny(gray[roi_top:, :], 50, 150)
+        edges = cv2.Canny(gray, 50, 150)
 
-        # Column edge density: high = boundary, low = open space
-        col_edges = np.sum(edges > 0, axis=0).astype(np.float32)
+        scanline_y = int(h * SCANLINE_FRAC)
 
-        # Find the widest open valley between edge peaks
-        corridor_x, corridor_width, left_peak, right_peak = _find_widest_valley(
-            col_edges, w, self._prev_corridor_x
-        )
-        self._prev_corridor_x = corridor_x
-        heading_hist = corridor_x - w // 2
+        heading, clear, left_edge, right_edge, left_gap, right_gap = \
+            _scan_line_heading(edges, w, scanline_y, ROVER_HALF_PX, EDGE_BAND_HALF)
 
-        # Keep green mask for display only
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        green_mask = cv2.inRange(hsv, GREEN_LOW, GREEN_HIGH)
-        green_mask = cv2.morphologyEx(green_mask, cv2.MORPH_OPEN, self._morph_kernel)
+        # corridor_width: how much clear space the rover has on the chosen side
+        # (used by field_traverser for speed modulation — keep the same semantic)
+        corridor_width = float(max(left_gap, right_gap) if not clear else w // 2)
 
-        row_ann = _draw_row_detection(frame, green_mask, corridor_x, heading_hist,
-                                      roi_top, corridor_width, left_peak, right_peak)
+        self.pub_heading.publish(Float64(data=float(heading)))
+        self.pub_vp_heading.publish(Float64(data=float(heading)))   # same source
+        self.pub_confidence.publish(Int32(data=int(clear)))         # 1 = path clear
+        self.pub_corridor_w.publish(Float64(data=corridor_width))
+        self.pub_left_peak.publish(Float64(data=float(left_edge)))
+        self.pub_right_peak.publish(Float64(data=float(right_edge)))
 
-        # ── Step 3: Vanishing point (uses all edges) ──────────────────────
-        lines = cv2.HoughLinesP(
-            edges, 1, np.pi / 180, threshold=40,
-            minLineLength=30, maxLineGap=15
-        )
-
-        left_pts, right_pts = [], []
-        vp_ann = frame.copy()
-
-        if lines is not None:
-            for seg in lines:
-                x1, y1, x2, y2 = seg[0]
-                if x2 == x1:
-                    continue
-                slope = (y2 - y1) / (x2 - x1)
-                if abs(slope) < 0.3 or abs(slope) > 10.0:
-                    continue
-                fy1, fy2 = y1 + roi_top, y2 + roi_top
-                if slope < 0:
-                    left_pts += [(x1, y1), (x2, y2)]
-                    cv2.line(vp_ann, (x1, fy1), (x2, fy2), (255, 100, 0), 1)
-                else:
-                    right_pts += [(x1, y1), (x2, y2)]
-                    cv2.line(vp_ann, (x1, fy1), (x2, fy2), (0, 100, 255), 1)
-
-        vp_x, vp_confidence = w // 2, 0
-        left_fit, right_fit = _fit_line(left_pts), _fit_line(right_pts)
-
-        if left_fit and right_fit:
-            ix, iy = _intersect(left_fit, right_fit)
-            iy_full = iy + roi_top
-            if 0 < ix < w and iy_full < h * 2 // 3:
-                vp_x, vp_confidence = int(ix), min(len(left_pts), len(right_pts))
-                cv2.circle(vp_ann, (vp_x, int(iy_full)),  8, (0, 255, 255), -1)
-                cv2.circle(vp_ann, (vp_x, int(iy_full)), 14, (0, 255, 255),  2)
-
-        heading_vp = vp_x - w // 2
-
-        # Publish data for the controller
-        self.pub_heading.publish(Float64(data=float(heading_hist)))
-        self.pub_vp_heading.publish(Float64(data=float(heading_vp)))
-        self.pub_confidence.publish(Int32(data=vp_confidence))
-        self.pub_corridor_w.publish(Float64(data=float(corridor_width)))
-
-        cv2.line(vp_ann, (0, roi_top), (w, roi_top), (0, 220, 220), 1)
-        cv2.line(vp_ann, (w // 2, roi_top), (w // 2, h), (255, 255, 255), 1)
-        cv2.putText(vp_ann, f'err: {heading_vp:+d}px  conf:{vp_confidence}',
-                    (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
-
-        # ── Tile into one window ──────────────────────────────────────────
-        panels = [
-            ('Camera Feed',     frame),
-            ('Edge Mask',       cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)),
-            ('Row Detection',   row_ann),
-            ('Canny Edges',     cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)),
-            ('Vanishing Point', vp_ann),
-            ('',                _summary_panel(heading_hist, heading_vp, vp_confidence, corridor_width)),
-        ]
-
-        tiles = []
-        for title, img in panels:
-            tile = cv2.resize(img, (PANEL_W, PANEL_H))
-            if title:
-                cv2.putText(tile, title, (6, 16),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
-            tiles.append(tile)
-
-        display = np.vstack([np.hstack(tiles[:3]), np.hstack(tiles[3:])])
-        cv2.imshow('Vision Pipeline', display)
-        cv2.waitKey(1)
+        _draw_debug(frame, edges, scanline_y, w, heading,
+                    left_edge, right_edge, clear, left_gap, right_gap)
 
 
-# ── Corridor detection ───────────────────────────────────────────────────────
+# ── Core algorithm ───────────────────────────────────────────────────────────
 
-def _find_widest_valley(hist, img_w, prev_x):
-    """Smooth the edge-density histogram, find peaks, and return the centre
-    of the widest valley between two adjacent peaks.  This naturally steers
-    the robot toward the largest open gap, avoiding obstacles that create
-    extra peaks."""
-    smooth = cv2.GaussianBlur(hist.reshape(1, -1), (0, 21), 5).flatten()
+def _scan_line_heading(edges, img_w, scanline_y, rover_half_px, band_half):
+    """
+    1. Collapse a horizontal band of edge rows into a single 1-D occupancy row.
+    2. Check the rover footprint [cx-rover_half_px, cx+rover_half_px] for edges.
+    3. If clear  → heading = 0 (go straight).
+    4. If blocked → scan left from the left rover edge and right from the right
+                    rover edge; steer toward whichever side has the larger gap.
 
-    # Local maxima = edge clusters (rows, obstacles, posts...)
-    peaks = []
-    for i in range(10, len(smooth) - 10):
-        if smooth[i] > smooth[i-1] and smooth[i] > smooth[i+1]:
-            if smooth[i] > smooth.max() * 0.08:
-                peaks.append(i)
+    Returns
+    -------
+    heading      : signed pixel error from image centre (positive = steer right)
+    clear        : True if the straight-ahead path was unobstructed
+    left_edge_x  : x of the first edge to the left of the rover (or 0)
+    right_edge_x : x of the first edge to the right of the rover (or img_w-1)
+    left_gap     : clear pixels available to the left
+    right_gap    : clear pixels available to the right
+    """
+    top    = max(0, scanline_y - band_half)
+    bottom = min(edges.shape[0], scanline_y + band_half + 1)
+    band   = edges[top:bottom, :]
 
-    if len(peaks) >= 2:
-        peaks = sorted(peaks)
-        # Widest valley between adjacent peaks = safest path
-        best = None
-        best_w = 0
-        for i in range(len(peaks) - 1):
-            width = peaks[i+1] - peaks[i]
-            if width > best_w:
-                best_w = width
-                best = (peaks[i], peaks[i+1])
+    # Any non-zero edge pixel in the band → occupied column
+    occupied = (np.sum(band, axis=0) > 0)
 
-        if best and best_w >= 60:  # at least 60 px wide
-            lp, rp = best
-            return (lp + rp) // 2, float(best_w), lp, rp
+    cx      = img_w // 2
+    left_b  = max(0,        cx - rover_half_px)
+    right_b = min(img_w-1,  cx + rover_half_px)
 
-    # Fallback: temporal coherence or image centre
-    if prev_x is not None:
-        return prev_x, 200.0, prev_x - 80, prev_x + 80
-    return img_w // 2, 200.0, img_w // 2 - 80, img_w // 2 + 80
+    # ── Step 1: is the path ahead clear? ─────────────────────────────────────
+    if not np.any(occupied[left_b:right_b + 1]):
+        return 0.0, True, left_b, right_b, left_b, img_w - 1 - right_b
+
+    # ── Step 2: scan left from left_b ────────────────────────────────────────
+    left_edge_x = 0
+    left_gap    = left_b           # worst case: edge at image boundary
+    for i in range(left_b, -1, -1):
+        if occupied[i]:
+            left_edge_x = i
+            left_gap    = left_b - i
+            break
+
+    # ── Step 3: scan right from right_b ──────────────────────────────────────
+    right_edge_x = img_w - 1
+    right_gap    = img_w - 1 - right_b
+    for i in range(right_b, img_w):
+        if occupied[i]:
+            right_edge_x = i
+            right_gap    = i - right_b
+            break
+
+    # ── Step 4: pick side with more room ─────────────────────────────────────
+    if left_gap >= right_gap:
+        # Steer left: target is the centre of the left gap
+        target_x = left_b - left_gap // 2
+    else:
+        # Steer right: target is the centre of the right gap
+        target_x = right_b + right_gap // 2
+
+    heading = float(target_x - cx)
+    return heading, False, left_edge_x, right_edge_x, left_gap, right_gap
 
 
-# ── Drawing helpers ──────────────────────────────────────────────────────────
+# ── Debug visualisation ──────────────────────────────────────────────────────
 
-def _draw_row_detection(frame, green_mask, corridor_x, heading_error, roi_top,
-                        corridor_width, left_peak, right_peak):
-    h, w = frame.shape[:2]
+def _draw_debug(frame, edges, scanline_y, img_w, heading,
+                left_edge_x, right_edge_x, clear, left_gap, right_gap):
+    h  = frame.shape[0]
+    cx = img_w // 2
+
     ann = frame.copy()
-    overlay = np.zeros_like(frame)
-    overlay[green_mask > 0] = (0, 200, 0)
-    ann = cv2.addWeighted(ann, 1.0, overlay, 0.4, 0)
-    cv2.line(ann, (0, roi_top), (w, roi_top), (0, 220, 220), 1)
-    cv2.line(ann, (w // 2, roi_top), (w // 2, h), (255, 255, 255), 1)
-    cv2.line(ann, (corridor_x, roi_top), (corridor_x, h), (0, 0, 255), 2)
 
-    # Mark the detected boundary peaks
-    cv2.line(ann, (left_peak,  roi_top), (left_peak,  roi_top + 15), (255, 255, 0), 2)
-    cv2.line(ann, (right_peak, roi_top), (right_peak, roi_top + 15), (255, 255, 0), 2)
+    # Scan line
+    color = (0, 255, 0) if clear else (0, 0, 255)
+    cv2.line(ann, (0, scanline_y), (img_w, scanline_y), color, 1)
 
-    cv2.putText(ann, f'err:{heading_error:+d}px w:{int(corridor_width)}',
-                (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
-    return ann
+    # Rover footprint on scan line
+    left_b  = max(0,       cx - ROVER_HALF_PX)
+    right_b = min(img_w-1, cx + ROVER_HALF_PX)
+    cv2.line(ann, (left_b,  scanline_y - 8), (left_b,  scanline_y + 8), (255, 255, 0), 2)
+    cv2.line(ann, (right_b, scanline_y - 8), (right_b, scanline_y + 8), (255, 255, 0), 2)
 
+    # Nearest edges found (left=blue, right=red)
+    if not clear:
+        cv2.circle(ann, (left_edge_x,  scanline_y), 5, (255, 80, 0),   -1)
+        cv2.circle(ann, (right_edge_x, scanline_y), 5, (0,   80, 255), -1)
 
-def _summary_panel(heading_hist: int, heading_vp: int, confidence: int, corridor_width: float):
-    panel = np.zeros((480, 640, 3), dtype=np.uint8)
-    rows = [
-        ('Heading summary', (0, 255, 255)),
-        ('',                (0, 0, 0)),
-        (f'  Histogram : {heading_hist:+d} px', (200, 200, 200)),
-        (f'  Vanish pt : {heading_vp:+d} px',  (200, 200, 200)),
-        (f'  VP conf   : {confidence} pts',     (200, 200, 200)),
-        (f'  Valley w  : {corridor_width:.0f} px', (200, 200, 200)),
-    ]
-    for i, (txt, colour) in enumerate(rows):
-        cv2.putText(panel, txt, (20, 40 + i * 40),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, colour, 1)
-    return panel
+    # Heading arrow from centre
+    target_x = int(cx + heading)
+    cv2.arrowedLine(ann, (cx, scanline_y), (target_x, scanline_y),
+                    (0, 255, 255), 2, tipLength=0.3)
 
+    # Text overlay
+    status = 'CLEAR' if clear else f'L:{left_gap}px R:{right_gap}px'
+    cv2.putText(ann, f'err:{heading:+.0f}px  {status}',
+                (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 1)
 
-# ── Geometry helpers ─────────────────────────────────────────────────────────
+    # Edge mask panel
+    edge_bgr = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+    cv2.line(edge_bgr, (0, scanline_y), (img_w, scanline_y), (0, 255, 0), 1)
 
-def _fit_line(pts):
-    if len(pts) < 2:
-        return None
-    xs = np.array([p[0] for p in pts], dtype=np.float32)
-    ys = np.array([p[1] for p in pts], dtype=np.float32)
-    m, b = np.polyfit(xs, ys, 1)
-    return (float(m), float(b))
-
-
-def _intersect(left, right):
-    m1, b1 = left
-    m2, b2 = right
-    if abs(m1 - m2) < 1e-6:
-        return (0.0, 0.0)
-    x = (b2 - b1) / (m1 - m2)
-    return (x, m1 * x + b1)
+    display = np.hstack([
+        cv2.resize(ann,      (640, 480)),
+        cv2.resize(edge_bgr, (640, 480)),
+    ])
+    cv2.imshow('Vision Pipeline', display)
+    cv2.waitKey(1)
 
 
 def main(args=None):

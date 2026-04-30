@@ -47,17 +47,16 @@ def generate_launch_description():
             output='screen'
         ),
 
-        # Visual servo controller: heading error → /cmd_vel
+        # Field traverser: multi-row state machine → /cmd_vel
         Node(
             package='vision_nav',
-            executable='visual_servo',
-            name='visual_servo',
+            executable='field_traverser',
+            name='field_traverser',
             output='screen',
             parameters=[{
                 'Kp': LaunchConfiguration('Kp'),
                 'Kd': LaunchConfiguration('Kd'),
                 'linear_x': LaunchConfiguration('linear_x'),
-                'use_vp': LaunchConfiguration('use_vp'),
             }]
         ),
     ])
