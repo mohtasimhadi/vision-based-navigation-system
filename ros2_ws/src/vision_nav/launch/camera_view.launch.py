@@ -25,4 +25,11 @@ def generate_launch_description():
             name='camera_viewer',
             output='screen'
         ),
+
+        Node(
+            package='vision_nav',
+            executable='row_detector',
+            name='row_detector',
+            output='screen'
+        ),
     ])

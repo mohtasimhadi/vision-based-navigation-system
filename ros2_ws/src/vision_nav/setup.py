@@ -22,6 +22,7 @@ setup(
     entry_points={
         'console_scripts': [
             'camera_viewer = vision_nav.camera_viewer:main',
+            'row_detector  = vision_nav.row_detector:main',
         ],
     },
 )
