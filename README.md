@@ -38,7 +38,8 @@ vision-based-navigation-system/
 │   └── src/
 │       └── vision_nav/         # Vision navigation package
 │           ├── vision_nav/
-│           │   └── camera_viewer.py    # Camera feed subscriber + OpenCV display
+│           │   ├── camera_viewer.py    # Camera feed subscriber + OpenCV display
+│           │   └── row_detector.py     # HSV segmentation + corridor detection
 │           └── launch/
 │               └── camera_view.launch.py   # Bridge + viewer launch file
 └── worlds/                     # Generated SDF output (gitignored)
@@ -120,6 +121,23 @@ The launch file starts a `ros_gz_bridge` node that bridges the Gazebo camera top
 ```
 
 The navigation stack is custom — it does not use `move_base` or `nav2`. Only ROS 2 topics and `ros_gz_bridge` are used for transport.
+
+### Nodes
+
+| Node | File | What it does |
+|------|------|--------------|
+| `camera_viewer` | `camera_viewer.py` | Subscribes to `/camera/image_raw`, displays raw feed with frame info overlay |
+| `row_detector` | `row_detector.py` | Converts each frame to HSV, masks crop green pixels, finds the low-green corridor, computes heading error in pixels |
+
+### Heading error
+
+`row_detector` outputs a heading error defined as:
+
+```
+heading_error = corridor_centre_x - image_centre_x   (pixels)
+```
+
+Negative = corridor is left of centre, positive = right. This value drives the visual servoing controller in the next stage.
 
 ## Scenarios
 
