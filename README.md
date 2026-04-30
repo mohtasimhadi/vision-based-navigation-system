@@ -1,38 +1,52 @@
 # Vision-Based Navigation System
 
-A procedural world generator for simulating autonomous robot navigation through crop fields. Produces Gazebo-compatible SDF world files with configurable plant rows, environmental conditions, and a differential-drive robot equipped with a camera sensor.
+A simulation environment and vision-based navigation stack for autonomous robot navigation through crop fields. Includes a procedural Gazebo world generator and a ROS 2 navigation package that steers the robot using camera input only — no prebuilt navigation stack.
 
 ## Overview
 
-This tool generates two simulation scenarios for training and evaluating vision-based navigation algorithms in agricultural environments:
+The project has two layers:
+
+- **World generator** — produces Gazebo SDF world files with configurable crop rows, lighting, fog, and obstacles
+- **Navigation stack** (`vision_nav`) — a ROS 2 package that processes the robot's camera feed to estimate heading and control motion
+
+Two simulation scenarios are provided:
 
 - **Nominal** — ideal lighting, clear visibility, uniform plant rows
 - **Challenging** — reduced ambient light, fog, sparse plants, and added obstacles
 
-Both scenarios place a Husky-style robot at the start of a crop field and are ready to load directly into Gazebo Sim.
+Both place a Husky-style robot at the start of a crop field, ready to load into Gazebo Sim.
 
 ## Project Structure
 
 ```
 vision-based-navigation-system/
-├── world_generator.py      # Entry point — generates SDF world files
-├── templates/              # SDF templates for world components
-│   ├── world.sdf           # Base world (lighting, physics, fog)
-│   ├── plant.sdf           # Crop plant model (stem + canopy sphere)
-│   ├── robot.sdf           # Husky robot with camera and drive plugin
-│   ├── box.sdf             # Generic obstacle/post model
-│   └── wheel.sdf           # Robot wheel model
-├── utils/                  # Python modules
-│   ├── data_classes.py     # Plant, Box, and World dataclasses
-│   ├── scenarios.py        # Scenario definitions (nominal, challenging)
-│   ├── generators.py       # Row population and post placement
-│   ├── assembler.py        # SDF template assembly engine
+├── world_generator.py          # Entry point — generates SDF world files
+├── templates/                  # SDF templates for world components
+│   ├── world.sdf               # Base world (lighting, physics, fog)
+│   ├── plant.sdf               # Crop plant model (stem + canopy sphere)
+│   ├── robot.sdf               # Husky robot with camera and drive plugin
+│   ├── box.sdf                 # Generic obstacle/post model
+│   └── wheel.sdf               # Robot wheel model
+├── utils/                      # World generator Python modules
+│   ├── data_classes.py         # Plant, Box, and World dataclasses
+│   ├── scenarios.py            # Scenario definitions (nominal, challenging)
+│   ├── generators.py           # Row population and post placement
+│   ├── assembler.py            # SDF template assembly engine
 │   └── sdf/
-│       └── snippets.py     # Per-component SDF string generators
-└── worlds/                 # Output directory for generated SDF files
+│       └── snippets.py         # Per-component SDF string generators
+├── ros2_ws/                    # ROS 2 workspace
+│   └── src/
+│       └── vision_nav/         # Vision navigation package
+│           ├── vision_nav/
+│           │   └── camera_viewer.py    # Camera feed subscriber + OpenCV display
+│           └── launch/
+│               └── camera_view.launch.py   # Bridge + viewer launch file
+└── worlds/                     # Generated SDF output (gitignored)
 ```
 
 ## Requirements
+
+### World Generator
 
 - Python 3.10+
 - NumPy
@@ -41,32 +55,71 @@ vision-based-navigation-system/
 pip install numpy
 ```
 
-No other dependencies are required. The generated SDF files target **Gazebo SDF 1.10** with the ODE physics engine.
+### Navigation Stack
 
-## Usage
+- ROS 2 Jazzy
+- Gazebo (Harmonic or later)
+- `ros_gz_bridge`, `cv_bridge`, `python3-opencv`
 
 ```bash
-# Generate both worlds to the default worlds/ directory
+sudo apt install ros-jazzy-ros-gz-bridge ros-jazzy-cv-bridge python3-opencv
+```
+
+## Generating the Worlds
+
+```bash
 python world_generator.py
-
-# Specify a custom output directory
-python world_generator.py --output-dir /path/to/output
 ```
 
-Expected output:
+Output:
 
 ```
-[OK] worlds/crop_nominal.sdf     plants=81  boxes=1  fog=none
-    SDF SIZE: 89444
-[OK] worlds/crop_challenging.sdf plants=64  boxes=3  fog=d0.055
-    SDF SIZE: 83365
+[OK] worlds/crop_nominal.sdf     plants=68  boxes=1  fog=none
+[OK] worlds/crop_challenging.sdf plants=62  boxes=3  fog=d0.055
 ```
 
-Load either file into Gazebo Sim:
+Load into Gazebo:
 
 ```bash
 gz sim worlds/crop_nominal.sdf
 ```
+
+## Running the Navigation Stack
+
+**Terminal 1 — Gazebo:**
+
+```bash
+gz sim worlds/crop_nominal.sdf
+```
+
+**Terminal 2 — Build and launch the ROS 2 node:**
+
+```bash
+cd ros2_ws
+source /opt/ros/jazzy/setup.bash
+colcon build --packages-select vision_nav
+source install/setup.bash
+ros2 launch vision_nav camera_view.launch.py
+```
+
+The launch file starts a `ros_gz_bridge` node that bridges the Gazebo camera topic to ROS 2, then starts the `camera_viewer` node which displays the live feed in an OpenCV window.
+
+## Navigation Architecture
+
+```
+[Gazebo Camera]
+      |
+      v
+[Perception]       RGB segmentation · feature tracking · optical flow
+      |
+      v
+[Estimation]       Row centerline · heading error · traversability map
+      |
+      v
+[Control]          Visual servoing → /cmd_vel
+```
+
+The navigation stack is custom — it does not use `move_base` or `nav2`. Only ROS 2 topics and `ros_gz_bridge` are used for transport.
 
 ## Scenarios
 
@@ -88,27 +141,20 @@ gz sim worlds/crop_nominal.sdf
 | Plant rows | 4 (increased positional jitter, missing plants) |
 | Obstacles | Crate, debris, end-of-row post |
 
-## How It Works
-
-1. **Scenario definition** (`utils/scenarios.py`) — configures lighting, fog, and plant row parameters, then calls the generators to populate a `World` object.
-2. **Row generation** (`utils/generators.py`) — places plants along each row with seed-controlled randomization for reproducible results. Applies sinusoidal curves, spacing jitter, and size/color variance per plant.
-3. **SDF assembly** (`utils/assembler.py`) — fills the `world.sdf` template with rendered plant, box, and robot SDF snippets produced by `utils/sdf/snippets.py`.
-4. **Output** (`world_generator.py`) — writes the assembled SDF to disk and prints generation statistics.
-
 ## Robot Model
 
-The simulated robot is a four-wheeled differential-drive platform modeled after the Clearpath Husky. It includes:
+Four-wheeled differential-drive platform modeled after the Clearpath Husky:
 
-- Four mecanum-style wheels with friction and inertia properties
-- A forward-facing camera sensor on a fixed joint
-- A differential drive plugin compatible with Gazebo Sim's gz-sim-diff-drive-system
+- Differential drive plugin on `/cmd_vel`
+- Forward-facing camera (640×480, 30 fps, 60° FOV) mounted at 0.45 m forward, 20° downward pitch
+- Camera publishes on Gazebo topic `/camera`, bridged to `/camera/image_raw` in ROS 2
 
-## Extending the System
+## How the World Generator Works
 
-- **Add a scenario** — create a new function in `utils/scenarios.py` following the `nominal()` or `challenging()` pattern, then call it in `world_generator.py`.
-- **Change plant appearance** — modify the `Plant` dataclass fields or the color/size variance parameters passed to `add_natural_row()`.
-- **Add obstacle types** — define a new `Box` instance with the desired position, dimensions, and color, then append it to `world.boxes`.
-- **Swap the robot** — replace the template in `templates/robot.sdf` and update `utils/sdf/snippets.py` accordingly.
+1. **Scenario definition** (`utils/scenarios.py`) — configures lighting, fog, and plant row parameters
+2. **Row generation** (`utils/generators.py`) — places plants with seed-controlled randomization, sinusoidal curves, and per-plant size/color variance
+3. **SDF assembly** (`utils/assembler.py`) — fills `world.sdf` with rendered plant, box, and robot snippets
+4. **Output** (`world_generator.py`) — writes assembled SDF to disk
 
 ## License
 
