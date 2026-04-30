@@ -32,9 +32,6 @@ def add_natural_row(
             sc = float(np.clip(1.0 + rng.normal(0, size_var), 0.65, 1.45))
 
             canopy_r = canopy_r_base * sc
-            canopy_z = (0.32 + rng.uniform(0, 0.18)) * sc + 0.22
-            stem_h   = float(np.clip(0.28 * sc + rng.uniform(-0.05, 0.08), 0.15, 0.55))
-            stem_r   = float(np.clip(0.04 + rng.uniform(-0.01, 0.01), 0.02, 0.07))
 
             # Blueberry bush — low, wide shrub proportions
             canopy_z = float(np.clip((0.14 + rng.uniform(0, 0.10)) * sc + 0.10, 0.18, 0.45))
@@ -77,6 +74,16 @@ def add_terrain_tile(
         sx=x_length, sy=y_width, sz=0.01,
         r=r, g=g, b=b,
     ))
+
+
+def add_end_posts(world: World, x: float, y_pairs: list):
+    for i, (y0, y1) in enumerate(y_pairs):
+        world.boxes.append(Box(
+            name=f"end_post_{i}",
+            x=x, y=(y0+y1)/2, z=0.50,
+            sx=0.10, sy=0.10, sz=1.00,
+            r=0.90, g=0.45, b=0.00,
+        ))
 
 
 def add_row_light(world, name, x, y, z, r, g, b, intensity=1.0, spot=True):

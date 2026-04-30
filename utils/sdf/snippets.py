@@ -82,10 +82,10 @@ def _robot_sdf(rx: float, ry: float) -> str:
         )
 
     wheels = "\n".join([
-        make_wheel("front_left",  0.254,  0.285),
-        make_wheel("front_right", 0.254, -0.285),
-        make_wheel("rear_left",  -0.254,  0.285),
-        make_wheel("rear_right", -0.254, -0.285),
+        make_wheel("front_left",  0.169,  0.190),
+        make_wheel("front_right", 0.169, -0.190),
+        make_wheel("rear_left",  -0.169,  0.190),
+        make_wheel("rear_right", -0.169, -0.190),
     ])
 
     return robot_template.format(
