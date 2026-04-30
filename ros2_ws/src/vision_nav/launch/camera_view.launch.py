@@ -32,4 +32,11 @@ def generate_launch_description():
             name='row_detector',
             output='screen'
         ),
+
+        Node(
+            package='vision_nav',
+            executable='vanishing_point',
+            name='vanishing_point_detector',
+            output='screen'
+        ),
     ])

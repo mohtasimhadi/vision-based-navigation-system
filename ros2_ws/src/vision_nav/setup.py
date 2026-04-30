@@ -21,8 +21,9 @@ setup(
     license='MIT',
     entry_points={
         'console_scripts': [
-            'camera_viewer = vision_nav.camera_viewer:main',
-            'row_detector  = vision_nav.row_detector:main',
+            'camera_viewer          = vision_nav.camera_viewer:main',
+            'row_detector           = vision_nav.row_detector:main',
+            'vanishing_point        = vision_nav.vanishing_point:main',
         ],
     },
 )
