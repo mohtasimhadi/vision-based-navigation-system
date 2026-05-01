@@ -4,10 +4,10 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-WS_DIR="$PROJECT_ROOT/ros2_ws"
+WS_DIR="$PROJECT_ROOT"
 
-if [ ! -d "$WS_DIR" ]; then
-    echo "[ERROR] ROS 2 workspace not found at $WS_DIR"
+if [ ! -f "$WS_DIR/vision_nav/package.xml" ]; then
+    echo "[ERROR] vision_nav package not found at $WS_DIR/vision_nav"
     exit 1
 fi
 

@@ -1,9 +1,9 @@
 #!/bin/bash
 # Launch Gazebo and the ROS 2 navigation stack in separate terminals.
-# Usage: ./scripts/run_all.sh [nominal|challenging]
+# Usage: ./run_all.sh [nominal|challenging]
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+PROJECT_ROOT="$SCRIPT_DIR"
 
 SCENARIO="${1:-nominal}"
 
