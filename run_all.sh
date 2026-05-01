@@ -1,24 +1,24 @@
 #!/bin/bash
 # Launch Gazebo and the ROS 2 navigation stack in separate terminals.
-# Usage: ./run_all.sh [nominal|challenging]
+# Usage: ./run_all.sh [nominal|challenging] [0|1|2]
+#   Row 0 = C2_left  (x=-0.5, y=-1.0, facing +X)
+#   Row 1 = C1_inner (x= 9.4, y= 0.0, facing -X)
+#   Row 2 = C3_right (x=-0.5, y= 1.0, facing +X)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR"
 
 SCENARIO="${1:-nominal}"
+ROW="${2:-0}"
 
-echo "=== Row Navigator ==="
-echo "Available starting rows:"
-echo "  0 = C2_left  (x=-0.5, y=-1.0, facing +X)"
-echo "  1 = C1_inner (x= 9.4, y= 0.0, facing -X)"
-echo "  2 = C3_right (x=-0.5, y= 1.0, facing +X)"
-echo ""
-read -rp "Select starting row (0/1/2): " ROW
-ROW="${ROW:-0}"
+case "$SCENARIO" in
+    nominal|challenging) ;;
+    *) echo "[ERROR] Invalid scenario '$SCENARIO'. Use: nominal | challenging"; exit 1 ;;
+esac
 
 case "$ROW" in
     0|1|2) ;;
-    *) echo "[ERROR] Invalid row '$ROW'. Using default 0."; ROW=0 ;;
+    *) echo "[ERROR] Invalid row '$ROW'. Use: 0 | 1 | 2"; exit 1 ;;
 esac
 
 echo "[LAUNCH] Starting simulation + navigation stack ($SCENARIO scenario, row $ROW)..."
