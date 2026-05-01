@@ -5,14 +5,90 @@ def load_template(path):
     with open(path, "r") as f:
         return f.read()
 
+
+def _grass_patch_sdf(idx: int, px: float, py: float, z: float,
+                     r: float, h: float, cr: float, cg: float, cb: float) -> str:
+    return load_template("templates/grass_patch.sdf").format(
+        idx=idx,
+        x=f"{px:.3f}", y=f"{py:.3f}", z=f"{z:.4f}",
+        r=f"{r:.3f}", h=f"{h:.4f}",
+        cr=f"{cr:.3f}", cg=f"{cg:.3f}", cb=f"{cb:.3f}",
+    )
+
+
+def _gravel_stone_sdf(idx: int, px: float, py: float, z: float,
+                      r: float, cr: float, cg: float, cb: float) -> str:
+    return load_template("templates/gravel_stone.sdf").format(
+        idx=idx,
+        x=f"{px:.3f}", y=f"{py:.3f}", z=f"{z:.4f}",
+        r=f"{r:.3f}",
+        cr=f"{cr:.3f}", cg=f"{cg:.3f}", cb=f"{cb:.3f}",
+    )
+
+
+def _gravel_cluster_sdf(idx: int, stones: list) -> str:
+    """
+    One <link> containing multiple collision + visual spheres.
+    stones: list of (px, py, z, r, cr, cg, cb)
+    """
+    parts = []
+    for i, (px, py, z, r, cr, cg, cb) in enumerate(stones):
+        parts.append(f'''    <collision name="c_{i}">
+      <pose>{px:.3f} {py:.3f} {z:.4f} 0 0 0</pose>
+      <geometry>
+        <sphere><radius>{r:.3f}</radius></sphere>
+      </geometry>
+    </collision>
+    <visual name="v_{i}">
+      <pose>{px:.3f} {py:.3f} {z:.4f} 0 0 0</pose>
+      <geometry>
+        <sphere><radius>{r:.3f}</radius></sphere>
+      </geometry>
+      <material>
+        <ambient>{cr:.3f} {cg:.3f} {cb:.3f} 1</ambient>
+        <diffuse>{cr:.3f} {cg:.3f} {cb:.3f} 1</diffuse>
+      </material>
+    </visual>''')
+    return f"  <link name=\"cluster_{idx}\">\n" + "\n".join(parts) + "\n  </link>"
+
+
+def _static_model_sdf(name: str, links: list) -> str:
+    return load_template("templates/static_model.sdf").format(
+        name=name,
+        links="\n".join(links),
+    )
+
+
+def _corridor_light_sdf(name: str, x: float, y: float, z: float,
+                        intensity: float, r: float, g: float, b: float) -> str:
+    return load_template("templates/light_spot.sdf").format(
+        name=name,
+        x=f"{x:.2f}", y=f"{y:.2f}", z=f"{z:.2f}",
+        intensity=f"{intensity:.3f}",
+        r=f"{r:.3f}", g=f"{g:.3f}", b=f"{b:.3f}",
+    )
+
+
+def _row_light_sdf(name: str, x: float, y: float, z: float,
+                   intensity: float, r: float, g: float, b: float,
+                   spot: bool = True) -> str:
+    tpl = "templates/light_spot_row.sdf" if spot else "templates/light_point.sdf"
+    return load_template(tpl).format(
+        name=name,
+        x=f"{x:.2f}", y=f"{y:.2f}", z=f"{z:.2f}",
+        intensity=f"{intensity:.3f}",
+        r=f"{r:.3f}", g=f"{g:.3f}", b=f"{b:.3f}",
+    )
+
 def _plant_sdf(p: Plant, idx: int) -> str:
     template = load_template("templates/plant.sdf")
 
     crown_z  = round(p.stem_h / 2, 3)
     crown_r  = round(p.stem_r, 3)
     crown_h  = round(p.stem_h, 3)
-    canopy_z = round(p.canopy_z, 3)
     canopy_r = round(p.canopy_r, 3)
+    # Canopy bottom = crown top — eliminates the visible gap between body and canopy
+    canopy_z = round(p.stem_h + canopy_r, 3)
 
     # Secondary lobe — seeded per-plant so the world is deterministic
     rng = np.random.default_rng(idx)
@@ -21,7 +97,7 @@ def _plant_sdf(p: Plant, idx: int) -> str:
     sec_r     = float(canopy_r * rng.uniform(0.55, 0.75))
     sec_x     = round(p.x + sec_off_x, 4)
     sec_y     = round(p.y + sec_off_y, 4)
-    sec_z     = round(p.canopy_z - canopy_r * 0.25 + rng.uniform(-0.05, 0.05), 4)
+    sec_z     = round(canopy_z - canopy_r * 0.25 + rng.uniform(-0.05, 0.05), 4)
     sec_r     = round(sec_r, 4)
 
     # Secondary lobe is a slightly darker shade
@@ -67,7 +143,7 @@ def _box_sdf(b: Box) -> str:
         b=f"{b.b:.3f}"
     )
 
-def _robot_sdf(rx: float, ry: float) -> str:
+def _robot_sdf(rx: float, ry: float, ryaw: float = 0.0) -> str:
     with open("templates/robot.sdf") as f:
         robot_template = f.read()
 
@@ -91,5 +167,6 @@ def _robot_sdf(rx: float, ry: float) -> str:
     return robot_template.format(
         rx=f"{rx:.3f}",
         ry=f"{ry:.3f}",
+        ryaw=f"{ryaw:.3f}",
         wheels=wheels
     )

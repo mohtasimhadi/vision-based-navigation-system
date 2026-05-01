@@ -1,0 +1,10 @@
+    <light name="{name}" type="spot">
+      <pose>{x} {y} {z} 0 0 0</pose>
+      <intensity>{intensity}</intensity>
+      <diffuse>{r} {g} {b} 1</diffuse>
+      <specular>0.02 0.02 0.02 1</specular>
+      <attenuation><range>6</range><constant>0.30</constant><linear>0.05</linear><quadratic>0.005</quadratic></attenuation>
+      <direction>0 0 -1</direction>
+      <spot><inner_angle>1.20</inner_angle><outer_angle>1.57</outer_angle><falloff>1.0</falloff></spot>
+      <cast_shadows>false</cast_shadows>
+    </light>

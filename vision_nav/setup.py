@@ -27,6 +27,7 @@ setup(
             'vision_pipeline        = vision_nav.vision_pipeline:main',
             'visual_servo           = vision_nav.visual_servo:main',
             'field_traverser        = vision_nav.field_traverser:main',
+            'navigate_cli           = vision_nav.navigate_cli:main',
         ],
     },
 )

@@ -27,6 +27,7 @@ class World:
     name: str
     robot_x: float = -0.5
     robot_y: float = 0.0
+    robot_yaw: float = 0.0
     ambient: tuple = (0.65, 0.65, 0.65, 1.0)
     sun_dir: tuple = (-0.5, 0.1, -0.9)
     fog_density: float = 0.0
@@ -35,3 +36,4 @@ class World:
     plants: List[Plant] = field(default_factory=list)
     boxes: List[Box] = field(default_factory=list)
     lights: List[str] = field(default_factory=list)
+    decorations: List[str] = field(default_factory=list)

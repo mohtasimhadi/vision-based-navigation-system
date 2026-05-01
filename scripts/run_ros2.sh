@@ -1,12 +1,15 @@
 #!/bin/bash
 # Build (if needed) and launch the vision navigation stack.
+# Usage: ./scripts/run_ros2.sh [row]
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-WS_DIR="$PROJECT_ROOT/ros2_ws"
+WS_DIR="$PROJECT_ROOT"
 
-if [ ! -d "$WS_DIR" ]; then
-    echo "[ERROR] ROS 2 workspace not found at $WS_DIR"
+ROW="${1:-0}"
+
+if [ ! -f "$WS_DIR/vision_nav/package.xml" ]; then
+    echo "[ERROR] vision_nav package not found at $WS_DIR/vision_nav"
     exit 1
 fi
 
@@ -21,7 +24,7 @@ fi
 cd "$WS_DIR" || exit 1
 
 # Build if install directory is missing or if source is newer
-if [ ! -d "install" ] || [ "$(find src -newer install -print -quit 2>/dev/null)" ]; then
+if [ ! -d "install" ] || [ "$(find vision_nav -newer install -print -quit 2>/dev/null)" ]; then
     echo "[ROS2] Building vision_nav package..."
     colcon build --packages-select vision_nav --symlink-install
     if [ $? -ne 0 ]; then
@@ -34,5 +37,5 @@ fi
 
 source "$WS_DIR/install/setup.bash"
 
-echo "[ROS2] Launching vision_nav camera_view.launch.py..."
-ros2 launch vision_nav camera_view.launch.py
+echo "[ROS2] Launching vision_nav camera_view.launch.py (corridor_idx=$ROW)..."
+ros2 launch vision_nav camera_view.launch.py corridor_idx:="$ROW"

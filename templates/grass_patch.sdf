@@ -1,0 +1,17 @@
+  <link name="patch_{idx}">
+    <pose>{x} {y} {z} 0 0 0</pose>
+    <collision name="c">
+      <geometry>
+        <cylinder><radius>{r}</radius><length>{h}</length></cylinder>
+      </geometry>
+    </collision>
+    <visual name="v">
+      <geometry>
+        <cylinder><radius>{r}</radius><length>{h}</length></cylinder>
+      </geometry>
+      <material>
+        <ambient>{cr} {cg} {cb} 1</ambient>
+        <diffuse>{cr} {cg} {cb} 1</diffuse>
+      </material>
+    </visual>
+  </link>
