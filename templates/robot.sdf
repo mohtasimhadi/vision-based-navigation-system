@@ -1,5 +1,5 @@
 <model name="husky">
-  <pose>{rx} {ry} 0.147 0 0 0</pose>
+  <pose>{rx} {ry} 0.147 0 0 {ryaw}</pose>
 
   <plugin filename="gz-sim-diff-drive-system"
           name="gz::sim::systems::DiffDrive">

@@ -117,7 +117,7 @@ def _box_sdf(b: Box) -> str:
         b=f"{b.b:.3f}"
     )
 
-def _robot_sdf(rx: float, ry: float) -> str:
+def _robot_sdf(rx: float, ry: float, ryaw: float = 0.0) -> str:
     with open("templates/robot.sdf") as f:
         robot_template = f.read()
 
@@ -141,5 +141,6 @@ def _robot_sdf(rx: float, ry: float) -> str:
     return robot_template.format(
         rx=f"{rx:.3f}",
         ry=f"{ry:.3f}",
+        ryaw=f"{ryaw:.3f}",
         wheels=wheels
     )

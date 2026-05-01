@@ -27,6 +27,7 @@ class World:
     name: str
     robot_x: float = -0.5
     robot_y: float = 0.0
+    robot_yaw: float = 0.0
     ambient: tuple = (0.65, 0.65, 0.65, 1.0)
     sun_dir: tuple = (-0.5, 0.1, -0.9)
     fog_density: float = 0.0

@@ -25,7 +25,7 @@ def assemble(w: World) -> str:
 
     lights_sdf = "\n".join(w.lights)
 
-    robot = _robot_sdf(w.robot_x, w.robot_y)
+    robot = _robot_sdf(w.robot_x, w.robot_y, w.robot_yaw)
 
     return template.format(
         name=w.name,

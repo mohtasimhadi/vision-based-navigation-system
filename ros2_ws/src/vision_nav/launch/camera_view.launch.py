@@ -22,6 +22,10 @@ def generate_launch_description():
             'use_vp', default_value='true',
             description='Use vanishing-point heading when confidence is high'
         ),
+        DeclareLaunchArgument(
+            'corridor_idx', default_value='0',
+            description='Which row to follow: 0=C2_left, 1=C1_inner, 2=C3_right'
+        ),
 
         # Bridge: Gazebo /camera  →  ROS 2 /camera/image_raw
         # Bridge: ROS 2 /cmd_vel  →  Gazebo /cmd_vel
@@ -57,6 +61,7 @@ def generate_launch_description():
                 'Kp': LaunchConfiguration('Kp'),
                 'Kd': LaunchConfiguration('Kd'),
                 'linear_x': LaunchConfiguration('linear_x'),
+                'corridor_idx': LaunchConfiguration('corridor_idx'),
             }]
         ),
     ])
