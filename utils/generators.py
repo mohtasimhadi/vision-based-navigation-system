@@ -1,6 +1,11 @@
 import numpy as np
 from typing import List, Optional
 from utils.data_classes import World, Plant, Box
+from utils.sdf.snippets import (
+    _grass_patch_sdf, _gravel_stone_sdf, _static_model_sdf,
+    _corridor_light_sdf, _row_light_sdf,
+)
+
 
 def add_natural_row(
     world:            World,
@@ -16,6 +21,7 @@ def add_natural_row(
     canopy_r_base:    float = 0.20,
     skip:             Optional[List[int]] = None,
     seed:             Optional[int]       = None,
+    clear_end_m:      float = 0.0,
 ):
     rng      = np.random.default_rng(seed)
     skip_set = set(skip or [])
@@ -23,7 +29,8 @@ def add_natural_row(
     x_pos = 0.0
     i = 0
     while x_pos < length:
-        if i not in skip_set:
+        in_clear_zone = clear_end_m > 0 and x_pos > length - clear_end_m
+        if i not in skip_set and not in_clear_zone:
             y_curve = y_center + curve_amp * np.sin(2 * np.pi * x_pos / curve_period)
 
             px = x_pos + rng.normal(0, x_jitter)
@@ -35,8 +42,8 @@ def add_natural_row(
 
             # Blueberry bush — low, wide shrub proportions
             canopy_z = float(np.clip((0.14 + rng.uniform(0, 0.10)) * sc + 0.10, 0.18, 0.45))
-            stem_h   = float(np.clip(0.10 * sc + rng.uniform(-0.02, 0.04), 0.06, 0.22))   # crown height
-            stem_r   = float(np.clip(0.09 + rng.uniform(-0.02, 0.02), 0.05, 0.14))        # crown radius (wider)
+            stem_h   = float(np.clip(0.10 * sc + rng.uniform(-0.02, 0.04), 0.06, 0.22))
+            stem_r   = float(np.clip(0.09 + rng.uniform(-0.02, 0.02), 0.05, 0.14))
 
             # Dark blue-green blueberry foliage
             cv  = rng.uniform(-colour_var, colour_var)
@@ -66,7 +73,6 @@ def add_terrain_tile(
     r: float, g: float, b: float,
     name: str = None,
 ):
-    """Flat coloured ground patch to visually differentiate corridor terrain."""
     nm = name or f"terrain_{len(world.boxes)}"
     world.boxes.append(Box(
         name=nm,
@@ -78,12 +84,13 @@ def add_terrain_tile(
 
 def add_end_posts(world: World, x: float, y_pairs: list):
     for i, (y0, y1) in enumerate(y_pairs):
-        world.boxes.append(Box(
-            name=f"end_post_{i}",
-            x=x, y=(y0+y1)/2, z=0.50,
-            sx=0.10, sy=0.10, sz=1.00,
-            r=0.90, g=0.45, b=0.00,
-        ))
+        for j, y in enumerate([y0, y1]):
+            world.boxes.append(Box(
+                name=f"end_post_{i}_{j}",
+                x=x, y=y, z=0.50,
+                sx=0.10, sy=0.10, sz=1.00,
+                r=0.90, g=0.45, b=0.00,
+            ))
 
 
 def add_grass_field(
@@ -94,7 +101,6 @@ def add_grass_field(
     y_width: float,
     seed: Optional[int] = None,
 ):
-    """Dense field of tiny cylindrical grass tufts inside a single static model."""
     rng = np.random.default_rng(seed)
     nx = max(1, int(x_length / 0.35))
     ny = max(1, int(y_width / 0.25))
@@ -108,7 +114,6 @@ def add_grass_field(
             px += rng.uniform(-0.06, 0.06)
             py += rng.uniform(-0.06, 0.06)
 
-            # Mostly flat disks, occasional taller tufts
             if rng.random() < 0.75:
                 r = rng.uniform(0.035, 0.065)
                 h = rng.uniform(0.003, 0.012)
@@ -117,7 +122,6 @@ def add_grass_field(
                 h = rng.uniform(0.012, 0.030)
             z = h / 2 + 0.0005
 
-            # Green with occasional brown/yellow patches
             if rng.random() < 0.85:
                 cr = float(np.clip(0.12 + rng.uniform(-0.04, 0.05), 0.05, 0.25))
                 cg = float(np.clip(0.35 + rng.uniform(-0.08, 0.10), 0.18, 0.55))
@@ -127,34 +131,11 @@ def add_grass_field(
                 cg = float(np.clip(0.28 + rng.uniform(-0.06, 0.06), 0.15, 0.38))
                 cb = float(np.clip(0.05 + rng.uniform(-0.02, 0.02), 0.02, 0.10))
 
-            link_lines = [
-                f'  <link name="patch_{idx}">',
-                f'    <pose>{px:.3f} {py:.3f} {z:.4f} 0 0 0</pose>',
-                '    <collision name="c">',
-                '      <geometry>',
-                f'        <cylinder><radius>{r:.3f}</radius><length>{h:.4f}</length></cylinder>',
-                '      </geometry>',
-                '    </collision>',
-                '    <visual name="v">',
-                '      <geometry>',
-                f'        <cylinder><radius>{r:.3f}</radius><length>{h:.4f}</length></cylinder>',
-                '      </geometry>',
-                '      <material>',
-                f'        <ambient>{cr:.3f} {cg:.3f} {cb:.3f} 1</ambient>',
-                f'        <diffuse>{cr:.3f} {cg:.3f} {cb:.3f} 1</diffuse>',
-                '      </material>',
-                '    </visual>',
-                '  </link>',
-            ]
-            links.append("\n".join(link_lines))
+            links.append(_grass_patch_sdf(idx, px, py, z, r, h, cr, cg, cb))
             idx += 1
 
     model_name = f"grassfield_{len(world.decorations)}"
-    world.decorations.append(
-        f'<model name="{model_name}">\n  <static>true</static>\n'
-        + "\n".join(links)
-        + "\n</model>"
-    )
+    world.decorations.append(_static_model_sdf(model_name, links))
 
 
 def add_loose_gravel(
@@ -166,7 +147,6 @@ def add_loose_gravel(
     n_stones: int = 90,
     seed: Optional[int] = None,
 ):
-    """Scattered small spherical stones inside a single static model."""
     rng = np.random.default_rng(seed)
 
     links = []
@@ -182,53 +162,30 @@ def add_loose_gravel(
         cg = float(np.clip(base - 0.05 + rng.uniform(-0.06, 0.06), 0.18, 0.58))
         cb = float(np.clip(base - 0.10 + rng.uniform(-0.06, 0.06), 0.12, 0.52))
 
-        link_lines = [
-            f'  <link name="stone_{i}">',
-            f'    <pose>{px:.3f} {py:.3f} {z:.4f} 0 0 0</pose>',
-            '    <collision name="c">',
-            '      <geometry>',
-            f'        <sphere><radius>{r:.3f}</radius></sphere>',
-            '      </geometry>',
-            '    </collision>',
-            '    <visual name="v">',
-            '      <geometry>',
-            f'        <sphere><radius>{r:.3f}</radius></sphere>',
-            '      </geometry>',
-            '      <material>',
-            f'        <ambient>{cr:.3f} {cg:.3f} {cb:.3f} 1</ambient>',
-            f'        <diffuse>{cr:.3f} {cg:.3f} {cb:.3f} 1</diffuse>',
-            '      </material>',
-            '    </visual>',
-            '  </link>',
-        ]
-        links.append("\n".join(link_lines))
+        links.append(_gravel_stone_sdf(i, px, py, z, r, cr, cg, cb))
 
     model_name = f"gravel_{len(world.decorations)}"
-    world.decorations.append(
-        f'<model name="{model_name}">\n  <static>true</static>\n'
-        + "\n".join(links)
-        + "\n</model>"
-    )
+    world.decorations.append(_static_model_sdf(model_name, links))
+
+
+def add_corridor_light_strip(
+    world: World,
+    y: float,
+    r: float, g: float, b: float,
+    intensity: float = 1.0,
+    n_lights: int = 5,
+    z: float = 2.5,
+    x_start: float = 1.0,
+    x_end: float = 8.0,
+    name_prefix: str = "cl",
+):
+    """Downward spot-light strip along a corridor to simulate a lighting mood."""
+    for k, x in enumerate(np.linspace(x_start, x_end, n_lights)):
+        world.lights.append(
+            _corridor_light_sdf(f"{name_prefix}_{k}", float(x), y, z, intensity, r, g, b)
+        )
 
 
 def add_row_light(world, name, x, y, z, r, g, b, intensity=1.0, spot=True):
-    """Append a raw SDF light string to world.lights (list of str)."""
-    if spot:
-        sdf = f"""    <light name="{name}" type="spot">
-      <pose>{x:.2f} {y:.2f} {z:.2f} 0 1.5708 0</pose>
-      <diffuse>{r*intensity:.3f} {g*intensity:.3f} {b*intensity:.3f} 1</diffuse>
-      <specular>0.05 0.05 0.05 1</specular>
-      <attenuation><range>12</range><constant>0.4</constant><linear>0.01</linear><quadratic>0.002</quadratic></attenuation>
-      <direction>0 0 -1</direction>
-      <spot><inner_angle>0.9</inner_angle><outer_angle>1.3</outer_angle><falloff>1.5</falloff></spot>
-      <cast_shadows>false</cast_shadows>
-    </light>"""
-    else:
-        sdf = f"""    <light name="{name}" type="point">
-      <pose>{x:.2f} {y:.2f} {z:.2f} 0 0 0</pose>
-      <diffuse>{r*intensity:.3f} {g*intensity:.3f} {b*intensity:.3f} 1</diffuse>
-      <specular>0.05 0.05 0.05 1</specular>
-      <attenuation><range>8</range><constant>0.5</constant><linear>0.02</linear><quadratic>0.003</quadratic></attenuation>
-      <cast_shadows>false</cast_shadows>
-    </light>"""
-    world.lights.append(sdf)
+    """Append a light along a plant row to world.lights."""
+    world.lights.append(_row_light_sdf(name, x, y, z, intensity, r, g, b, spot=spot))

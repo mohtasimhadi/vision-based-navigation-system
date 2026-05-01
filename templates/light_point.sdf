@@ -1,0 +1,8 @@
+    <light name="{name}" type="point">
+      <pose>{x} {y} {z} 0 0 0</pose>
+      <intensity>{intensity}</intensity>
+      <diffuse>{r} {g} {b} 1</diffuse>
+      <specular>0.05 0.05 0.05 1</specular>
+      <attenuation><range>8</range><constant>0.5</constant><linear>0.02</linear><quadratic>0.003</quadratic></attenuation>
+      <cast_shadows>false</cast_shadows>
+    </light>
