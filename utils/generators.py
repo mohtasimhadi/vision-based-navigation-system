@@ -86,6 +86,131 @@ def add_end_posts(world: World, x: float, y_pairs: list):
         ))
 
 
+def add_grass_field(
+    world: World,
+    x_center: float,
+    y_center: float,
+    x_length: float,
+    y_width: float,
+    seed: Optional[int] = None,
+):
+    """Dense field of tiny cylindrical grass tufts inside a single static model."""
+    rng = np.random.default_rng(seed)
+    nx = max(1, int(x_length / 0.35))
+    ny = max(1, int(y_width / 0.25))
+
+    links = []
+    idx = 0
+    for i in range(nx):
+        for j in range(ny):
+            px = x_center - x_length / 2 + (i + 0.5) * (x_length / nx)
+            py = y_center - y_width / 2 + (j + 0.5) * (y_width / ny)
+            px += rng.uniform(-0.06, 0.06)
+            py += rng.uniform(-0.06, 0.06)
+
+            # Mostly flat disks, occasional taller tufts
+            if rng.random() < 0.75:
+                r = rng.uniform(0.035, 0.065)
+                h = rng.uniform(0.003, 0.012)
+            else:
+                r = rng.uniform(0.020, 0.040)
+                h = rng.uniform(0.012, 0.030)
+            z = h / 2 + 0.0005
+
+            # Green with occasional brown/yellow patches
+            if rng.random() < 0.85:
+                cr = float(np.clip(0.12 + rng.uniform(-0.04, 0.05), 0.05, 0.25))
+                cg = float(np.clip(0.35 + rng.uniform(-0.08, 0.10), 0.18, 0.55))
+                cb = float(np.clip(0.06 + rng.uniform(-0.02, 0.03), 0.02, 0.14))
+            else:
+                cr = float(np.clip(0.22 + rng.uniform(-0.05, 0.05), 0.12, 0.32))
+                cg = float(np.clip(0.28 + rng.uniform(-0.06, 0.06), 0.15, 0.38))
+                cb = float(np.clip(0.05 + rng.uniform(-0.02, 0.02), 0.02, 0.10))
+
+            link_lines = [
+                f'  <link name="patch_{idx}">',
+                f'    <pose>{px:.3f} {py:.3f} {z:.4f} 0 0 0</pose>',
+                '    <collision name="c">',
+                '      <geometry>',
+                f'        <cylinder><radius>{r:.3f}</radius><length>{h:.4f}</length></cylinder>',
+                '      </geometry>',
+                '    </collision>',
+                '    <visual name="v">',
+                '      <geometry>',
+                f'        <cylinder><radius>{r:.3f}</radius><length>{h:.4f}</length></cylinder>',
+                '      </geometry>',
+                '      <material>',
+                f'        <ambient>{cr:.3f} {cg:.3f} {cb:.3f} 1</ambient>',
+                f'        <diffuse>{cr:.3f} {cg:.3f} {cb:.3f} 1</diffuse>',
+                '      </material>',
+                '    </visual>',
+                '  </link>',
+            ]
+            links.append("\n".join(link_lines))
+            idx += 1
+
+    model_name = f"grassfield_{len(world.decorations)}"
+    world.decorations.append(
+        f'<model name="{model_name}">\n  <static>true</static>\n'
+        + "\n".join(links)
+        + "\n</model>"
+    )
+
+
+def add_loose_gravel(
+    world: World,
+    x_center: float,
+    y_center: float,
+    x_length: float,
+    y_width: float,
+    n_stones: int = 90,
+    seed: Optional[int] = None,
+):
+    """Scattered small spherical stones inside a single static model."""
+    rng = np.random.default_rng(seed)
+
+    links = []
+    for i in range(n_stones):
+        px = rng.uniform(x_center - x_length / 2, x_center + x_length / 2)
+        py = rng.uniform(y_center - y_width / 2, y_center + y_width / 2)
+
+        r = rng.uniform(0.012, 0.032)
+        z = r + 0.0005
+
+        base = rng.uniform(0.38, 0.52)
+        cr = float(np.clip(base + rng.uniform(-0.06, 0.06), 0.22, 0.62))
+        cg = float(np.clip(base - 0.05 + rng.uniform(-0.06, 0.06), 0.18, 0.58))
+        cb = float(np.clip(base - 0.10 + rng.uniform(-0.06, 0.06), 0.12, 0.52))
+
+        link_lines = [
+            f'  <link name="stone_{i}">',
+            f'    <pose>{px:.3f} {py:.3f} {z:.4f} 0 0 0</pose>',
+            '    <collision name="c">',
+            '      <geometry>',
+            f'        <sphere><radius>{r:.3f}</radius></sphere>',
+            '      </geometry>',
+            '    </collision>',
+            '    <visual name="v">',
+            '      <geometry>',
+            f'        <sphere><radius>{r:.3f}</radius></sphere>',
+            '      </geometry>',
+            '      <material>',
+            f'        <ambient>{cr:.3f} {cg:.3f} {cb:.3f} 1</ambient>',
+            f'        <diffuse>{cr:.3f} {cg:.3f} {cb:.3f} 1</diffuse>',
+            '      </material>',
+            '    </visual>',
+            '  </link>',
+        ]
+        links.append("\n".join(link_lines))
+
+    model_name = f"gravel_{len(world.decorations)}"
+    world.decorations.append(
+        f'<model name="{model_name}">\n  <static>true</static>\n'
+        + "\n".join(links)
+        + "\n</model>"
+    )
+
+
 def add_row_light(world, name, x, y, z, r, g, b, intensity=1.0, spot=True):
     """Append a raw SDF light string to world.lights (list of str)."""
     if spot:

@@ -21,6 +21,8 @@ def assemble(w: World) -> str:
 
     objects = "\n\n".join(x for x in [plants, boxes] if x)
 
+    decorations_sdf = "\n\n".join(w.decorations)
+
     lights_sdf = "\n".join(w.lights)
 
     robot = _robot_sdf(w.robot_x, w.robot_y)
@@ -36,6 +38,7 @@ def assemble(w: World) -> str:
         ambient_a=w.ambient[3],
         fog=fog,
         objects=objects,
+        decorations=decorations_sdf,
         lights=lights_sdf,
         robot=robot,
     )
