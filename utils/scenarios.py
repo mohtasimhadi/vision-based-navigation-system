@@ -51,15 +51,8 @@ def nominal() -> World:
         ambient=(0.68, 0.68, 0.68, 1.0),
         sun_dir=(-0.5, 0.1, -0.9),
     )
-    # C2_left — bumpy grassfield
-    add_grass_field(w, X_MID, -(INNER_Y + OUTER_Y) / 2,
-                    ROW_LENGTH, ROW_SEP, seed=100)
-    # C1_inner — flat gravel field
-    add_terrain_tile(w, X_MID, 0.0, ROW_LENGTH, ROW_SEP,
-                     r=0.55, g=0.52, b=0.48, name="terrain_c1_inner")
-    # C3_right — loose gravels
-    add_loose_gravel(w, X_MID, (INNER_Y + OUTER_Y) / 2,
-                     ROW_LENGTH, ROW_SEP, n_stones=100, seed=200)
+    # Simple flat ground tiles — no grass or gravel
+    _add_corridor_tiles(w, brightness=1.0)
     add_natural_row(w, y_center=-0.65, curve_amp=0.10, curve_period=6.0,
                     y_jitter=0.06, x_jitter=0.03, size_var=0.10,
                     colour_var=0.06, canopy_r_base=0.18, seed=10)

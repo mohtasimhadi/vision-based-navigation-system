@@ -8,8 +8,11 @@ import numpy as np
 
 
 # ── Tuning constants ──────────────────────────────────────────────────────────
-ROI_TOP_FRAC   = 1 / 3   # ignore this top fraction of the image (sky/canopy)
-HEADING_ALPHA  = 0.35    # EMA smoothing weight (lower = smoother, more lag)
+ROI_TOP_FRAC    = 0.35
+ROI_BOTTOM_FRAC = 0.83
+MIN_CC_AREA     = 50
+MORPH_KERNEL    = np.ones((3, 3), np.uint8)
+HEADING_ALPHA   = 0.35
 
 
 class VisionPipeline(Node):
@@ -26,7 +29,7 @@ class VisionPipeline(Node):
         self.pub_left_peak  = self.create_publisher(Float64, '/vision/left_peak',        10)
         self.pub_right_peak = self.create_publisher(Float64, '/vision/right_peak',       10)
         self._heading_smooth = 0.0
-        self.get_logger().info('Vision pipeline (wall-gap) ready.')
+        self.get_logger().info('Vision pipeline (CC-filter) ready.')
 
     def _callback(self, msg: Image):
         frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
@@ -35,9 +38,9 @@ class VisionPipeline(Node):
         gray  = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         edges = cv2.Canny(gray, 50, 150)
 
-        heading, clear, left_wall_x, right_wall_x = _wall_gap_heading(edges, w, h)
+        heading, clear, left_wall_x, right_wall_x, cleaned_full, kept_info, \
+            roi_top, roi_bottom, band_closed, labels = _wall_gap_heading(edges, w, h)
 
-        # EMA smoothing; reset immediately when path is clear
         if clear:
             self._heading_smooth = 0.0
         else:
@@ -53,83 +56,190 @@ class VisionPipeline(Node):
         self.pub_left_peak.publish(Float64(data=float(left_wall_x)))
         self.pub_right_peak.publish(Float64(data=float(right_wall_x)))
 
-        _draw_debug(frame, edges, heading, clear, left_wall_x, right_wall_x, w, h)
+        _draw_debug(frame, edges, cleaned_full, kept_info, heading, clear,
+                    left_wall_x, right_wall_x, roi_top, roi_bottom,
+                    band_closed, labels, w, h)
 
 
 # ── Core algorithm ────────────────────────────────────────────────────────────
 
 def _wall_gap_heading(edges, img_w, img_h):
-    """
-    Collapse the lower portion of the edge image into a 1-D occupancy row.
+    roi_top    = int(img_h * ROI_TOP_FRAC)
+    roi_bottom = int(img_h * ROI_BOTTOM_FRAC)
+    band       = edges[roi_top:roi_bottom, :]
 
-    Left wall:  rightmost occupied column in the left  image half  → inner boundary of left  plants
-    Right wall: leftmost  occupied column in the right image half  → inner boundary of right plants
+    band_closed = cv2.morphologyEx(band, cv2.MORPH_CLOSE, MORPH_KERNEL)
 
-    The safe corridor is the gap between those two boundaries.
-    Heading = gap_centre - image_centre  (positive → gap is right of centre → steer right).
-    Clear = no wall edges found on either side (row has ended).
-    """
-    roi_top  = int(img_h * ROI_TOP_FRAC)
-    band     = edges[roi_top:, :]
-    occupied = np.any(band > 0, axis=0)   # True where any row in the band has an edge
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(
+        band_closed, connectivity=8
+    )
 
+    cleaned = np.zeros_like(band_closed)
+    kept_info = []
+    for i in range(1, num_labels):
+        area = int(stats[i, cv2.CC_STAT_AREA])
+        x, y, bw, bh = stats[i, cv2.CC_STAT_LEFT], stats[i, cv2.CC_STAT_TOP], \
+                       stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]
+        kept = area >= MIN_CC_AREA
+        kept_info.append({'id': i, 'area': area, 'x': x, 'y': y,
+                          'w': bw, 'h': bh, 'kept': kept})
+        if kept:
+            cleaned[labels == i] = 255
+
+    occupied = np.any(cleaned > 0, axis=0)
     cx = img_w // 2
-
-    left_cols  = np.where(occupied[:cx])[0]       # occupied columns in left  half
-    right_cols = np.where(occupied[cx:])[0] + cx  # occupied columns in right half
-
+    left_cols  = np.where(occupied[:cx])[0]
+    right_cols = np.where(occupied[cx:])[0] + cx
     no_left  = len(left_cols)  == 0
     no_right = len(right_cols) == 0
-
     left_wall_x  = int(left_cols[-1])  if not no_left  else 0
     right_wall_x = int(right_cols[0])  if not no_right else img_w - 1
-
     clear      = no_left and no_right
     gap_centre = (left_wall_x + right_wall_x) / 2.0
-    heading    = gap_centre - cx   # positive → steer right, negative → steer left
+    heading    = gap_centre - cx
 
-    return heading, clear, left_wall_x, right_wall_x
+    cleaned_full = np.zeros_like(edges)
+    cleaned_full[roi_top:roi_bottom, :] = cleaned
+
+    return heading, clear, left_wall_x, right_wall_x, cleaned_full, kept_info, \
+           roi_top, roi_bottom, band_closed, labels
 
 
 # ── Debug visualisation ───────────────────────────────────────────────────────
 
-def _draw_debug(frame, edges, heading, clear, left_wall_x, right_wall_x, w, h):
-    ann = frame.copy()
-    cx  = w // 2
-    roi_top = int(h * ROI_TOP_FRAC)
+def _draw_debug(frame, edges, cleaned_full, kept_info, heading, clear,
+                left_wall_x, right_wall_x, roi_top, roi_bottom,
+                band_closed, labels, w, h):
+    PW, PH  = 640, 480
+    cx      = w // 2
+    status  = 'CLEAR' if clear else f'L:{left_wall_x}  R:{right_wall_x}  gap:{right_wall_x - left_wall_x}px'
+    n_total = len(kept_info)
+    n_kept  = sum(1 for c in kept_info if c['kept'])
+    band_h  = roi_bottom - roi_top
 
-    # ROI boundary
-    cv2.line(ann, (0, roi_top), (w, roi_top), (0, 220, 220), 1)
+    # ── Panel 0: raw camera ───────────────────────────────────────────────────
+    p0 = frame.copy()
+    cv2.line(p0, (0, roi_top), (w, roi_top), (0, 220, 220), 2)
+    cv2.line(p0, (0, roi_bottom), (w, roi_bottom), (0, 220, 220), 2)
+    cv2.putText(p0, '0. RAW CAMERA', (6, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 1)
+    cv2.putText(p0, 'cyan = ROI borders', (6, PH - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0, 220, 220), 1)
 
-    # Don't-go-zone shading: left plant wall (red) and right plant wall (red)
-    overlay = ann.copy()
-    cv2.rectangle(overlay, (0, roi_top), (left_wall_x, h - 1),  (0, 0, 120), -1)
-    cv2.rectangle(overlay, (right_wall_x, roi_top), (w - 1, h - 1), (0, 0, 120), -1)
-    cv2.addWeighted(overlay, 0.35, ann, 0.65, 0, ann)
+    # ── Panel 1: full Canny ───────────────────────────────────────────────────
+    p1 = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+    cv2.line(p1, (0, roi_top), (w, roi_top), (0, 220, 220), 2)
+    cv2.line(p1, (0, roi_bottom), (w, roi_bottom), (0, 220, 220), 2)
+    cv2.putText(p1, '1. FULL CANNY', (6, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 1)
+    cv2.putText(p1, 'white = edges  cyan = ROI', (6, PH - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0, 220, 220), 1)
 
-    # Wall boundary lines
-    cv2.line(ann, (left_wall_x,  roi_top), (left_wall_x,  h - 1), (0, 0, 255), 2)
-    cv2.line(ann, (right_wall_x, roi_top), (right_wall_x, h - 1), (0, 0, 255), 2)
+    # ── Panel 2: ROI raw edges ────────────────────────────────────────────────
+    p2 = np.zeros_like(edges)
+    p2[roi_top:roi_bottom, :] = edges[roi_top:roi_bottom, :]
+    p2 = cv2.cvtColor(p2, cv2.COLOR_GRAY2BGR)
+    cv2.line(p2, (0, roi_top), (w, roi_top), (0, 220, 220), 2)
+    cv2.line(p2, (0, roi_bottom), (w, roi_bottom), (0, 220, 220), 2)
+    cv2.putText(p2, '2. ROI RAW EDGES', (6, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 1)
+    cv2.putText(p2, 'white = edges in active band', (6, PH - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0, 220, 220), 1)
 
-    # Gap centre target and image centre reference
+    # ── Panel 3: after morphological close ────────────────────────────────────
+    p3 = np.zeros_like(edges)
+    p3[roi_top:roi_bottom, :] = band_closed
+    p3 = cv2.cvtColor(p3, cv2.COLOR_GRAY2BGR)
+    cv2.line(p3, (0, roi_top), (w, roi_top), (0, 220, 220), 2)
+    cv2.line(p3, (0, roi_bottom), (w, roi_bottom), (0, 220, 220), 2)
+    cv2.putText(p3, '3. AFTER CLOSE', (6, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 1)
+    cv2.putText(p3, 'white = closed edges', (6, PH - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0, 220, 220), 1)
+
+    # ── Panel 4: connected components color-coded ─────────────────────────────
+    cc_vis = np.zeros((band_h, w, 3), dtype=np.uint8)
+    rng = np.random.default_rng(42)
+    max_label = labels.max()
+    for i in range(1, max_label + 1):
+        color = tuple(rng.integers(80, 255, 3).tolist())
+        cc_vis[labels == i] = color
+    p4 = np.zeros_like(frame)
+    p4[roi_top:roi_bottom, :] = cc_vis
+    cv2.line(p4, (0, roi_top), (w, roi_top), (255, 255, 255), 2)
+    cv2.line(p4, (0, roi_bottom), (w, roi_bottom), (255, 255, 255), 2)
+    for c in kept_info:
+        x1 = c['x']
+        y1 = roi_top + c['y']
+        txt = f"{c['area']}"
+        col = (0, 255, 0) if c['kept'] else (0, 100, 255)
+        cv2.putText(p4, txt, (x1, max(y1 - 2, roi_top + 14)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.32, col, 1)
+    cv2.putText(p4, '4. CONNECTED COMPONENTS', (6, 22),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 1)
+    cv2.putText(p4, 'random = blobs  grn txt = keep  orn txt = discard', (6, PH - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.34, (0, 220, 220), 1)
+
+    # ── Panel 5: discarded (filtered out) ─────────────────────────────────────
+    discarded = np.zeros_like(band_closed)
+    for c in kept_info:
+        if not c['kept']:
+            discarded[labels == c['id']] = 255
+    p5 = np.zeros_like(edges)
+    p5[roi_top:roi_bottom, :] = discarded
+    p5 = cv2.cvtColor(p5, cv2.COLOR_GRAY2BGR)
+    cv2.line(p5, (0, roi_top), (w, roi_top), (0, 220, 220), 2)
+    cv2.line(p5, (0, roi_bottom), (w, roi_bottom), (0, 220, 220), 2)
+    cv2.putText(p5, '5. DISCARDED (filtered)', (6, 22),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 1)
+    cv2.putText(p5, 'white = grass/gravel/noise (< MIN_CC_AREA)', (6, PH - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.34, (0, 220, 220), 1)
+
+    # ── Panel 6: kept (final) ─────────────────────────────────────────────────
+    p6 = cv2.cvtColor(cleaned_full, cv2.COLOR_GRAY2BGR)
+    for c in kept_info:
+        if c['kept']:
+            x1 = c['x']
+            y1 = roi_top + c['y']
+            x2 = x1 + c['w']
+            y2 = y1 + c['h']
+            cv2.rectangle(p6, (x1, y1), (x2, y2), (0, 210, 0), 1)
+            cv2.putText(p6, f"{c['area']}", (x1, max(y1 - 2, roi_top + 14)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.32, (0, 210, 0), 1)
+    cv2.line(p6, (0, roi_top), (w, roi_top), (0, 220, 220), 2)
+    cv2.line(p6, (0, roi_bottom), (w, roi_bottom), (0, 220, 220), 2)
+    cv2.putText(p6, '6. KEPT (final)', (6, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 1)
+    cv2.putText(p6, 'white = edges  green box + txt = kept blob', (6, PH - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.36, (0, 220, 220), 1)
+
+    # ── Panel 7: navigation overlay ───────────────────────────────────────────
+    p7 = frame.copy()
+    overlay = p7.copy()
+    cv2.rectangle(overlay, (0, roi_top), (left_wall_x, roi_bottom),  (0, 0, 120), -1)
+    cv2.rectangle(overlay, (right_wall_x, roi_top), (w - 1, roi_bottom), (0, 0, 120), -1)
+    cv2.addWeighted(overlay, 0.35, p7, 0.65, 0, p7)
+    cv2.line(p7, (left_wall_x,  roi_top), (left_wall_x,  roi_bottom), (0, 0, 255), 2)
+    cv2.line(p7, (right_wall_x, roi_top), (right_wall_x, roi_bottom), (0, 0, 255), 2)
     gap_centre = int((left_wall_x + right_wall_x) / 2)
-    cv2.line(ann, (cx,         roi_top), (cx,         h - 1), (255, 255, 255), 1)
-    cv2.line(ann, (gap_centre, roi_top), (gap_centre, h - 1),
+    cv2.line(p7, (cx,         roi_top), (cx,         roi_bottom), (255, 255, 255), 1)
+    cv2.line(p7, (gap_centre, roi_top), (gap_centre, roi_bottom),
              (0, 255, 0) if clear else (0, 255, 255), 2)
+    cv2.line(p7, (0, roi_top), (w, roi_top), (0, 220, 220), 2)
+    cv2.line(p7, (0, roi_bottom), (w, roi_bottom), (0, 220, 220), 2)
+    cv2.putText(p7, f'7. NAV  err:{heading:+.1f}px  {status}',
+                (6, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+    cv2.putText(p7, 'red = walls/dont-go  white = center  grn/yel = gap',
+                (6, PH - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.36, (0, 220, 220), 1)
+    cv2.putText(p7, f'CC: {n_kept}/{n_total} kept (>{MIN_CC_AREA}px)',
+                (6, 46), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 220, 220), 1)
 
-    # Edge panel
-    edge_bgr = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
-    cv2.line(edge_bgr, (0, roi_top), (w, roi_top), (0, 220, 220), 1)
-    cv2.line(edge_bgr, (left_wall_x,  roi_top), (left_wall_x,  h - 1), (0, 0, 255), 2)
-    cv2.line(edge_bgr, (right_wall_x, roi_top), (right_wall_x, h - 1), (0, 0, 255), 2)
+    # ── Assemble 2×4 grid with borders ────────────────────────────────────────
+    BORDER   = 6
+    p = [cv2.resize(p0, (PW, PH)), cv2.resize(p1, (PW, PH)),
+         cv2.resize(p2, (PW, PH)), cv2.resize(p3, (PW, PH)),
+         cv2.resize(p4, (PW, PH)), cv2.resize(p5, (PW, PH)),
+         cv2.resize(p6, (PW, PH)), cv2.resize(p7, (PW, PH))]
 
-    status = 'CLEAR' if clear else f'L:{left_wall_x}  R:{right_wall_x}  gap:{right_wall_x - left_wall_x}px'
-    cv2.putText(ann, f'err:{heading:+.1f}px  {status}',
-                (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 1)
+    border_h = np.full((PH, BORDER, 3), 255, dtype=np.uint8)
+    border_v = np.full((BORDER, PW * 4 + BORDER * 3, 3), 255, dtype=np.uint8)
 
-    cv2.imshow('Vision Pipeline',
-               np.hstack([cv2.resize(ann,      (640, 480)),
-                          cv2.resize(edge_bgr, (640, 480))]))
+    row0 = np.hstack([p[0], border_h, p[1], border_h, p[2], border_h, p[3]])
+    row1 = np.hstack([p[4], border_h, p[5], border_h, p[6], border_h, p[7]])
+    out  = np.vstack([row0, border_v, row1])
+
+    cv2.imshow('Vision Pipeline', out)
     cv2.waitKey(1)
 
 
