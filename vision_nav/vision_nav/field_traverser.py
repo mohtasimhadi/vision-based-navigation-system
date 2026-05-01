@@ -15,9 +15,9 @@ class FieldTraverser(Node):
 
     # Corridor centres must match utils/scenarios.py geometry
     ROWS = [
-        {'name': 'C2_left',  'y': -1.00, 'dir':  1, 'x_start': -0.5, 'x_end': 9.4},
-        {'name': 'C1_inner', 'y':  0.00, 'dir': -1, 'x_start':  9.4, 'x_end': -0.5},
-        {'name': 'C3_right', 'y':  1.00, 'dir':  1, 'x_start': -0.5, 'x_end': 9.4},
+        {'name': 'C2_left',  'y': -0.675, 'dir':  1, 'x_start': -0.5, 'x_end': 9.4},
+        {'name': 'C1_inner', 'y':  0.40, 'dir': -1, 'x_start':  9.4, 'x_end': -0.5},
+        {'name': 'C3_right', 'y':  1.40, 'dir':  1, 'x_start': -0.5, 'x_end': 9.4},
     ]
 
     def __init__(self):

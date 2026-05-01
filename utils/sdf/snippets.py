@@ -26,6 +26,32 @@ def _gravel_stone_sdf(idx: int, px: float, py: float, z: float,
     )
 
 
+def _gravel_cluster_sdf(idx: int, stones: list) -> str:
+    """
+    One <link> containing multiple collision + visual spheres.
+    stones: list of (px, py, z, r, cr, cg, cb)
+    """
+    parts = []
+    for i, (px, py, z, r, cr, cg, cb) in enumerate(stones):
+        parts.append(f'''    <collision name="c_{i}">
+      <pose>{px:.3f} {py:.3f} {z:.4f} 0 0 0</pose>
+      <geometry>
+        <sphere><radius>{r:.3f}</radius></sphere>
+      </geometry>
+    </collision>
+    <visual name="v_{i}">
+      <pose>{px:.3f} {py:.3f} {z:.4f} 0 0 0</pose>
+      <geometry>
+        <sphere><radius>{r:.3f}</radius></sphere>
+      </geometry>
+      <material>
+        <ambient>{cr:.3f} {cg:.3f} {cb:.3f} 1</ambient>
+        <diffuse>{cr:.3f} {cg:.3f} {cb:.3f} 1</diffuse>
+      </material>
+    </visual>''')
+    return f"  <link name=\"cluster_{idx}\">\n" + "\n".join(parts) + "\n  </link>"
+
+
 def _static_model_sdf(name: str, links: list) -> str:
     return load_template("templates/static_model.sdf").format(
         name=name,

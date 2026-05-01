@@ -2,7 +2,7 @@ import numpy as np
 from typing import List, Optional
 from utils.data_classes import World, Plant, Box
 from utils.sdf.snippets import (
-    _grass_patch_sdf, _gravel_stone_sdf, _static_model_sdf,
+    _grass_patch_sdf, _gravel_stone_sdf, _gravel_cluster_sdf, _static_model_sdf,
     _corridor_light_sdf, _row_light_sdf,
 )
 
@@ -145,16 +145,19 @@ def add_loose_gravel(
     x_length: float,
     y_width: float,
     n_stones: int = 90,
+    r_min: float = 0.012,
+    r_max: float = 0.032,
     seed: Optional[int] = None,
+    stones_per_link: int = 10,
 ):
     rng = np.random.default_rng(seed)
 
-    links = []
+    stones = []
     for i in range(n_stones):
         px = rng.uniform(x_center - x_length / 2, x_center + x_length / 2)
         py = rng.uniform(y_center - y_width / 2, y_center + y_width / 2)
 
-        r = rng.uniform(0.012, 0.032)
+        r = rng.uniform(r_min, r_max)
         z = r + 0.0005
 
         base = rng.uniform(0.38, 0.52)
@@ -162,7 +165,15 @@ def add_loose_gravel(
         cg = float(np.clip(base - 0.05 + rng.uniform(-0.06, 0.06), 0.18, 0.58))
         cb = float(np.clip(base - 0.10 + rng.uniform(-0.06, 0.06), 0.12, 0.52))
 
-        links.append(_gravel_stone_sdf(i, px, py, z, r, cr, cg, cb))
+        stones.append((px, py, z, r, cr, cg, cb))
+
+    # Batch into compound collision links to keep physics performant
+    links = []
+    link_idx = 0
+    for i in range(0, len(stones), stones_per_link):
+        batch = stones[i:i + stones_per_link]
+        links.append(_gravel_cluster_sdf(link_idx, batch))
+        link_idx += 1
 
     model_name = f"gravel_{len(world.decorations)}"
     world.decorations.append(_static_model_sdf(model_name, links))
