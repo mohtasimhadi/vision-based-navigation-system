@@ -9,9 +9,9 @@ SCENARIO="${1:-nominal}"
 ROW="${2:-0}"
 WORLD_FILE="$PROJECT_ROOT/worlds/crop_${SCENARIO}.sdf"
 
-echo "[SIM] Generating world for scenario=$SCENARIO..."
+echo "[SIM] Generating world for scenario=$SCENARIO, row=$ROW..."
 cd "$PROJECT_ROOT" || exit 1
-python3 world_generator.py
+python3 world_generator.py --row "$ROW"
 
 if [ ! -f "$WORLD_FILE" ]; then
     echo "[ERROR] World file not found: $WORLD_FILE"

@@ -26,7 +26,12 @@ vision-based-navigation-system/
 │   ├── plant.sdf               # Crop plant model (stem + canopy sphere)
 │   ├── robot.sdf               # Husky robot with camera and drive plugin
 │   ├── box.sdf                 # Generic obstacle/post model
-│   └── wheel.sdf               # Robot wheel model
+│   ├── wheel.sdf               # Robot wheel model
+│   ├── grass_patch.sdf         # Ground vegetation patch
+│   ├── gravel_stone.sdf        # Gravel debris model
+│   ├── light_point.sdf         # Point light template
+│   ├── light_spot.sdf          # Spot light template
+│   └── light_spot_row.sdf      # Row of spot lights
 ├── utils/                      # World generator Python modules
 │   ├── data_classes.py         # Plant, Box, and World dataclasses
 │   ├── scenarios.py            # Scenario definitions (nominal, challenging)
@@ -34,25 +39,24 @@ vision-based-navigation-system/
 │   ├── assembler.py            # SDF template assembly engine
 │   └── sdf/
 │       └── snippets.py         # Per-component SDF string generators
-├── ros2_ws/                    # ROS 2 workspace
-│   └── src/
-│       └── vision_nav/         # Vision navigation package
-│           ├── vision_nav/
-│           │   ├── camera_viewer.py    # Camera feed subscriber + OpenCV display
-│           │   ├── row_detector.py     # HSV segmentation + corridor detection
-│           │   ├── vanishing_point.py  # Vanishing point heading estimation
-│           │   ├── vision_pipeline.py  # Unified single-window pipeline
-│           │   ├── visual_servo.py     # P-controller → /cmd_vel
-│           │   └── field_traverser.py  # Multi-row field traversal state machine
-│           ├── package.xml           # ROS 2 package manifest
-│           ├── setup.py              # Python package setup
-│           ├── setup.cfg             # ament_python develop config
-│           └── launch/
-│               └── camera_view.launch.py   # Bridge + viewer launch file
+├── vision_nav/                 # ROS 2 workspace + vision navigation package
+│   ├── vision_nav/
+│   │   ├── camera_viewer.py    # Camera feed subscriber + OpenCV display
+│   │   ├── row_detector.py     # HSV segmentation + corridor detection
+│   │   ├── vanishing_point.py  # Vanishing point heading estimation
+│   │   ├── vision_pipeline.py  # Unified single-window pipeline
+│   │   ├── visual_servo.py     # P-controller → /cmd_vel
+│   │   ├── field_traverser.py  # Multi-row field traversal state machine
+│   │   └── navigate_cli.py     # Interactive CLI to send row commands
+│   ├── package.xml             # ROS 2 package manifest
+│   ├── setup.py                # Python package setup
+│   ├── setup.cfg               # ament_python develop config
+│   └── launch/
+│       └── camera_view.launch.py   # Bridge + viewer + traverser launch file
 ├── scripts/                    # Convenience launchers
 │   ├── run_sim.sh              # Launch Gazebo
-│   ├── run_ros2.sh             # Build + launch ROS 2 nav stack
-│   └── run_all.sh              # Launch both in separate terminals
+│   └── run_ros2.sh             # Build + launch ROS 2 nav stack
+├── run_all.sh                  # Launch both sim and nav in separate terminals
 └── worlds/                     # Generated SDF output (gitignored)
 ```
 
@@ -90,6 +94,14 @@ Output:
 [OK] worlds/crop_challenging.sdf plants=62  boxes=3  fog=d0.055
 ```
 
+You can also select the starting corridor:
+
+```bash
+python world_generator.py --row 0   # C2_left (default)
+python world_generator.py --row 1   # C1_inner
+python world_generator.py --row 2   # C3_right
+```
+
 Load into Gazebo:
 
 ```bash
@@ -103,17 +115,21 @@ gz sim worlds/crop_nominal.sdf
 From the project root, run both in separate terminals:
 
 ```bash
-./scripts/run_all.sh [nominal|challenging]
+./run_all.sh [nominal|challenging] [0|1|2]
 ```
+
+- Row `0` = C2_left  (default)
+- Row `1` = C1_inner
+- Row `2` = C3_right
 
 Or run them individually:
 
 ```bash
 # Terminal 1 — Gazebo
-./scripts/run_sim.sh nominal
+./scripts/run_sim.sh nominal 0
 
 # Terminal 2 — ROS 2 nav stack
-./scripts/run_ros2.sh
+./scripts/run_ros2.sh 0
 ```
 
 ### Manual Start
@@ -127,9 +143,8 @@ gz sim worlds/crop_nominal.sdf
 **Terminal 2 — Build and launch the ROS 2 node:**
 
 ```bash
-cd ros2_ws
 source /opt/ros/jazzy/setup.bash
-colcon build --packages-select vision_nav
+colcon build --packages-select vision_nav --symlink-install
 source install/setup.bash
 ros2 launch vision_nav camera_view.launch.py
 ```
@@ -168,6 +183,7 @@ The navigation stack is custom — it does not use `move_base` or `nav2`. Only R
 | `vision_pipeline` | `vision_pipeline.py` | **Unified node** — detects ALL edges (plants, obstacles, posts), finds the widest open valley between edge peaks, and publishes heading errors |
 | `visual_servo` | `visual_servo.py` | **Controller** — P-controller that converts heading error to `Twist` on `/cmd_vel` (standalone) |
 | `field_traverser` | `field_traverser.py` | **Field traverser** — state machine that drives down all 3 corridors sequentially |
+| `navigate_cli` | `navigate_cli.py` | **CLI tool** — interactive terminal prompt to publish `/target_row` commands to the field traverser |
 
 ### Heading Error
 
@@ -201,21 +217,23 @@ The controller fuses both signals: vanishing point when confident, otherwise the
 | `/vision/left_peak` | `std_msgs/Float64` | `vision_pipeline` | X-position of left edge peak (px) |
 | `/vision/right_peak` | `std_msgs/Float64` | `vision_pipeline` | X-position of right edge peak (px) |
 | `/cmd_vel` | `geometry_msgs/Twist` | `field_traverser` | Velocity commands for the differential drive |
+| `/target_row` | `std_msgs/Int32` | `navigate_cli` | Manual row-selection command |
 
 ### Tuning the Controller
 
-The launch file exposes three parameters you can override on the command line:
+The launch file exposes parameters you can override on the command line:
 
 ```bash
-ros2 launch vision_nav camera_view.launch.py Kp:=0.003 Kd:=0.002 linear_x:=0.2 use_vp:=false
+ros2 launch vision_nav camera_view.launch.py Kp:=0.003 Kd:=0.002 linear_x:=0.2 use_vp:=false corridor_idx:=1
 ```
 
 | Parameter | Default | Effect |
 |-----------|---------|--------|
 | `Kp` | `0.005` | Proportional gain. Higher = sharper steering response. |
 | `Kd` | `0.001` | Derivative gain. Dampens oscillation; increase if the robot weaves. |
-| `linear_x` | `0.3` | Base forward speed in m/s. The controller scales this down automatically when uncertain. |
+| `linear_x` | `0.2` | Base forward speed in m/s. The controller scales this down automatically when uncertain. |
 | `use_vp` | `true` | Use vanishing-point heading when confidence ≥ `min_confidence`. Falls back to histogram otherwise. |
+| `corridor_idx` | `0` | Which row to start from: `0`=C2_left, `1`=C1_inner, `2`=C3_right. |
 
 **Field traversal pattern**
 ```
@@ -284,7 +302,3 @@ Four-wheeled differential-drive platform modeled after the Clearpath Husky:
 2. **Row generation** (`utils/generators.py`) — places plants with seed-controlled randomization, sinusoidal curves, and per-plant size/color variance
 3. **SDF assembly** (`utils/assembler.py`) — fills `world.sdf` with rendered plant, box, and robot snippets
 4. **Output** (`world_generator.py`) — writes assembled SDF to disk
-
-## License
-
-This project is open source. See [LICENSE](LICENSE) for details.

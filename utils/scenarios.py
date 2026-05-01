@@ -1,3 +1,4 @@
+import math
 from utils.data_classes import World, Box
 from utils.generators import (
     add_natural_row, add_terrain_tile, add_row_light, add_end_posts,
@@ -11,6 +12,13 @@ ROW_SEP    = 1.00         # m between adjacent row centre-lines
 
 INNER_Y    = 0.50         # inner rows at ±INNER_Y  (define the C1_inner corridor)
 OUTER_Y    = 1.50         # outer rows at ±OUTER_Y  (define C2_left / C3_right)
+
+# ── Robot start positions — must match field_traverser.py ROWS ───────────────
+ROBOT_ROWS = [
+    {'x': -0.5,        'y': -1.00, 'yaw': 0.0},        # 0: C2_left,  facing +X
+    {'x':  ROW_LENGTH, 'y':  0.00, 'yaw': math.pi},    # 1: C1_inner, facing -X
+    {'x': -0.5,        'y':  1.00, 'yaw': 0.0},        # 2: C3_right, facing +X
+]
 
 # gap = ROW_SEP - 2 * canopy_r  →  1.00 - 2*0.20 ≈ 0.60 m
 # Rover track width ≈ 0.57 m → ~1.5 cm clearance per side (minimum passable)
@@ -44,10 +52,11 @@ def _add_corridor_tiles(w: World, brightness: float = 1.0):
 # Outer rows    = +/-1.50
 
 
-def nominal() -> World:
+def nominal(row: int = 0) -> World:
+    r = ROBOT_ROWS[row]
     w = World(
         name="crop_nominal",
-        robot_x=-0.5, robot_y=-1.00,
+        robot_x=r['x'], robot_y=r['y'], robot_yaw=r['yaw'],
         ambient=(0.68, 0.68, 0.68, 1.0),
         sun_dir=(-0.5, 0.1, -0.9),
     )
@@ -87,10 +96,11 @@ def nominal() -> World:
     return w
 
 
-def challenging() -> World:
+def challenging(row: int = 0) -> World:
+    r = ROBOT_ROWS[row]
     w = World(
         name="crop_challenging",
-        robot_x=-0.5, robot_y=-1.00,
+        robot_x=r['x'], robot_y=r['y'], robot_yaw=r['yaw'],
         ambient=(0.28, 0.28, 0.28, 1.0),
         sun_dir=(-0.2, 0.5, -0.45),
         fog_density=0.055,

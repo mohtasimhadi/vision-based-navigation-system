@@ -35,10 +35,14 @@ def generate_launch_description():
             name='bridge',
             arguments=[
                 '/camera@sensor_msgs/msg/Image[gz.msgs.Image',
+                '/camera_chase@sensor_msgs/msg/Image[gz.msgs.Image',
+                '/camera_global@sensor_msgs/msg/Image[gz.msgs.Image',
                 '/cmd_vel@geometry_msgs/msg/Twist]gz.msgs.Twist',
             ],
             remappings=[
-                ('/camera', '/camera/image_raw'),
+                ('/camera',        '/camera/image_raw'),
+                ('/camera_chase',  '/camera_chase/image_raw'),
+                ('/camera_global', '/camera_global/image_raw'),
             ],
             output='screen'
         ),
