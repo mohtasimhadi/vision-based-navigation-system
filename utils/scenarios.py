@@ -1,21 +1,16 @@
 from utils.data_classes import World, Box
-from utils.generators import add_natural_row, add_terrain_tile, add_row_light
+from utils.generators import add_natural_row, add_terrain_tile, add_row_light, add_end_posts
 
 # ── Field geometry ────────────────────────────────────────────────────────────
 ROW_LENGTH = 9.0          # m — all plant rows run from x=0 to x=ROW_LENGTH
 X_MID      = ROW_LENGTH / 2.0
-ROW_SEP    = 1.80         # m between adjacent row centre-lines
+ROW_SEP    = 1.30         # m between adjacent row centre-lines
 
-INNER_Y    = 0.90         # inner rows at ±INNER_Y  (define the C1_inner corridor)
-OUTER_Y    = 2.70         # outer rows at ±OUTER_Y  (define C2_left / C3_right)
+INNER_Y    = 0.65         # inner rows at ±INNER_Y  (define the C1_inner corridor)
+OUTER_Y    = 1.95         # outer rows at ±OUTER_Y  (define C2_left / C3_right)
 
-# gap = ROW_SEP - 2 * CANOPY_R_INNER  →  1.80 - 2*0.23 = 1.34 m
-# Rover track width ≈ 0.57 m → ~38 cm clearance per side (very comfortable)
-CANOPY_R_INNER = 0.23
-CANOPY_R_OUTER = 0.23
-
-# Corridor side offset — obstacles sit near the row edges, well clear of centre
-SIDE_OFFSET = 0.55
+# gap = ROW_SEP - 2 * canopy_r  →  1.30 - 2*0.18 ≈ 0.94 m
+# Rover track width ≈ 0.57 m → ~19 cm clearance per side
 
 
 def _add_corridor_tiles(w: World, brightness: float = 1.0):
@@ -53,6 +48,7 @@ def nominal() -> World:
         ambient=(0.68, 0.68, 0.68, 1.0),
         sun_dir=(-0.5, 0.1, -0.9),
     )
+    _add_corridor_tiles(w, brightness=1.0)
     add_natural_row(w, y_center=-0.65, curve_amp=0.10, curve_period=6.0,
                     y_jitter=0.06, x_jitter=0.03, size_var=0.10,
                     colour_var=0.06, canopy_r_base=0.18, seed=10)
@@ -80,6 +76,7 @@ def challenging() -> World:
         fog_start=1.5,
         fog_end=14.0,
     )
+    _add_corridor_tiles(w, brightness=0.55)
     add_natural_row(w, y_center=-0.65, curve_amp=0.16, curve_period=4.5,
                     y_jitter=0.12, x_jitter=0.07, size_var=0.20,
                     colour_var=0.14, canopy_r_base=0.20,
