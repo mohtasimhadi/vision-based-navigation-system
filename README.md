@@ -81,6 +81,23 @@ pip install numpy
 sudo apt install ros-jazzy-ros-gz-bridge ros-jazzy-cv-bridge python3-opencv
 ```
 
+## Running Tests
+
+The test suite covers the world generator and vision pipeline pure functions without requiring a ROS 2 installation.
+
+```bash
+# Install test dependencies
+pip install -r requirements-test.txt
+
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=utils --cov=vision_nav
+```
+
+All tests mock ROS 2 internals via `conftest.py`, so they run on any machine with Python 3.10+.
+
 ## Generating the Worlds
 
 ```bash
@@ -90,8 +107,8 @@ python world_generator.py
 Output:
 
 ```
-[OK] worlds/crop_nominal.sdf     plants=68  boxes=1  fog=none
-[OK] worlds/crop_challenging.sdf plants=62  boxes=3  fog=d0.055
+[OK] worlds/crop_nominal.sdf     plants=68  boxes=5  fog=none
+[OK] worlds/crop_challenging.sdf plants=57  boxes=2  fog=d0.055
 ```
 
 You can also select the starting corridor:
@@ -241,7 +258,7 @@ FOLLOW C2_left forward → TURN_PRE 90° left → TRANSVERSE 1.3 m → TURN_POST
 FOLLOW C1_inner forward → TURN_PRE 90° left → TRANSVERSE 1.3 m → TURN_POST 90° right → ALIGN →
 FOLLOW C3_right forward → DONE
 ```
-- Robot starts at the **leftmost corridor** (y = -1.3) and works rightward across the field.
+- Robot starts at the **leftmost corridor** (y = -0.675) and works rightward across the field.
 - End-of-row is detected visually (rows disappear from view) with a distance backup.
 - Transverse uses dead-reckoning from `/cmd_vel` integration.
 - TURN_PRE / TURN_POST are timed 90° turns onto/off the headland.
@@ -255,11 +272,11 @@ FOLLOW C3_right forward → DONE
 |-----------|-------|
 | Ambient light | 0.68 |
 | Fog | None |
-| Row spacing | 1.3 m between all rows (inner corridor = 1.3 m) |
-| Plant rows | 4 (sinusoidal, curve_amp=0.10, y_jitter=0.06) |
-| Plants | canopy_r_base=0.18 m, size_var=0.10 |
+| Corridor widths | C2_left 1.15 m · C1_inner 1.00 m · C3_right 1.00 m |
+| Plant rows | 4 (sinusoidal, curve_amp=0.08–0.10, y_jitter=0.05–0.06) |
+| Plants | Graduated: 0.13 → 0.15 → 0.17 → 0.19 m, size_var=0.10 |
 | Obstacles | 1 end-of-row post |
-| Start position | Robot begins at the **left corridor** (y = -1.3) |
+| Start position | Robot begins at **C2_left** (y = -0.675) |
 
 ### Challenging
 
@@ -267,11 +284,12 @@ FOLLOW C3_right forward → DONE
 |-----------|-------|
 | Ambient light | 0.28 |
 | Fog density | 0.055 (range 1.5–14 m) |
-| Row spacing | 1.3 m between all rows (inner corridor = 1.3 m) |
-| Plant rows | 4 (sharper curves, increased jitter, missing plants) |
-| Plants | canopy_r_base=0.20 m, size_var=0.20 |
-| Obstacles | Crate (left side of corridor), debris (right side), end-of-row post |
-| Start position | Robot begins at the **left corridor** (y = -1.3) |
+| Corridor widths | C2_left 1.15 m · C1_inner 1.00 m · C3_right 1.00 m |
+| Plant rows | 4 (sharper curves, missing plants, y_jitter=0.06–0.08) |
+| Plants | Uniform 0.15 m, size_var=0.12 |
+| Ground | Loose gravel (C1_inner) + grass patches (C3_right) |
+| Obstacles | End-of-row post only (no crate/debris) |
+| Start position | Robot begins at **C2_left** (y = -0.675) |
 
 ## Robot Model
 
