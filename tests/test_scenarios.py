@@ -62,9 +62,9 @@ class TestChallenging:
     def test_has_plants(self):
         assert len(challenging().plants) > 0
 
-    def test_has_obstacles(self):
+    def test_has_end_posts(self):
         obstacle_names = [b.name for b in challenging().boxes]
-        assert any("crate" in n or "debris" in n for n in obstacle_names)
+        assert any("post" in n for n in obstacle_names)
 
     def test_world_name(self):
         assert challenging().name == "crop_challenging"
